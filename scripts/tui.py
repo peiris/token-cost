@@ -505,107 +505,75 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
 # chrome
 # --------------------------------------------------------------------------
 
-def draw_tabs(sc: Screen, tab: int, y: int, left: int, width: int) -> None:
-    """The tab strip: one cell per tab, in a box, across the full width.
+def nav_cells(labels):
+    """Tab labels as buttons: padded, with a space between neighbours."""
+    return [f" {label} " for label in labels]
 
-    The active tab is filled rather than underlined -- at a glance you want
-    to see which cell you are in, not hunt for a mark beneath it.
+
+def draw_nav(sc: Screen, tab: int, y: int, x: int, width: int) -> None:
+    """One row of tab buttons, centred.
+
+    One row on purpose. A fill covers whole cells while a box rule is a line
+    through the middle of one, so a filled tab inside a three-row frame is
+    either a cell too tall or a hairline short -- there is no glyph that
+    starts where a rule sits. Here the fill is exactly as tall as the text
+    it holds, which is the only way it lands flush, and the space between
+    buttons is a real gap rather than a divider the fill has eaten.
     """
-    edge = curses.color_pair(C_ACCENT)
     labels = [label for label, _, _ in TABS]
-    tl, tr, bl, br = CORNERS
+    cells = nav_cells(labels)
+    span = sum(len(c) for c in cells) + len(cells) - 1
+    if span > width:                       # no room: name the current tab
+        place = f"{tab + 1}/{len(TABS)}"
+        centred(sc, y, x, width, [
+            (LEFT_ARROW + " ", curses.color_pair(C_MUTED)),
+            (labels[tab], curses.color_pair(C_ACCENT) | curses.A_BOLD),
+            (f"  {place} ", curses.color_pair(C_MUTED)),
+            (RIGHT_ARROW, curses.color_pair(C_MUTED)),
+        ])
+        return
 
-    # The strip runs to the right edge, but the leftover is plain rail rather
-    # than another cell: a divider there would read as an empty seventh tab.
-    spare = max(0, width - (sum(len(c) for c in labels) + len(labels) + 1))
-
-    rail = RULE * spare
-    sc.put(y, left, tl + T_DOWN.join(RULE * len(c) for c in labels)
-           + rail + tr, edge)
-    sc.put(y + 2, left, bl + T_UP.join(RULE * len(c) for c in labels)
-           + rail + br, edge)
-
-    x = left
-    slots = []
-    for cell in labels:
-        sc.put(y + 1, x, VERT, edge)
-        slots.append(x)              # the divider cell that opens this tab
-        sc.put(y + 1, x + 1, cell, curses.color_pair(C_MUTED))
-        x += 1 + len(cell)
-    sc.put(y + 1, x, " " * spare)
-    sc.put(y + 1, left + width - 1, VERT, edge)
-
-    # The selected tab is painted last, over its own dividers. A divider is a
-    # hairline down the centre of a cell, so filling only between them leaves
-    # half a cell of background either side -- the gap that stops it reading
-    # as a button. Covering those cells makes the fill meet its neighbours.
-    x0 = slots[tab]
-    block = f" {labels[tab]} "
-    fill = edge | curses.A_REVERSE | curses.A_BOLD
-    # Solid through all three rows. Half blocks would stop at the 50% mark to
-    # meet the rules, but fonts don't all draw a rule exactly there, and a
-    # hairline of background across the top of a tab looks like a defect. A
-    # tab standing proud of its rail does not.
-    sc.put(y, x0, " " * len(block), fill)
-    sc.put(y + 1, x0, block, fill)
-    sc.put(y + 2, x0, " " * len(block), fill)
-
-
-def draw_header(sc: Screen, data: Data, left: int, width: int) -> int:
-    """The banner: mark, name, version and project, centred in a box.
-
-    Returns the row after it. Skipped on a short terminal, where five rows
-    of masthead would come straight out of the table below it.
-    """
-    accent = curses.color_pair(C_ACCENT)
-    muted = curses.color_pair(C_MUTED)
-
-    if sc.h < 20:
-        sc.put(0, left, "token-cost", accent | curses.A_BOLD)
-        sc.put(0, max(left, sc.w - len(data.project) - 2), data.project, muted)
-        return 2
-
-    height = box_for(1)
-    panel(sc, 0, left, width, height, "")
-    x, y, w, _ = inside(left, 0, width, height)
-    centred(sc, y, x, w, [
-        (LOGO, accent),
-        ("  token-cost", accent | curses.A_BOLD),
-        (f" {version()}" if version() else "", muted),
-        ("  ·  ", muted),
-        (data.project, curses.A_BOLD),
-    ])
-    return height + 1
+    at = x + max(0, (width - span) // 2)
+    for i, cell in enumerate(cells):
+        if i == tab:
+            sc.put(y, at, cell,
+                   curses.color_pair(C_ACCENT) | curses.A_REVERSE | curses.A_BOLD)
+        else:
+            sc.put(y, at, cell, curses.color_pair(C_MUTED))
+        at += len(cell) + 1
 
 
 def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
-    """Header and tab strip. Returns the first row the tab body may use."""
+    """Masthead and tab row, in one frame. Returns the first body row."""
     accent = curses.color_pair(C_ACCENT)
     muted = curses.color_pair(C_MUTED)
-
     left, width = 2, sc.w - 4
-    top = draw_header(sc, data, left, width)
-    needed = sum(len(label) + 1 for label, _, _ in TABS) + 1
-    if needed <= width:
-        draw_tabs(sc, tab, top, left, width)
-    else:
-        # No room for the strip. Name the tab you are on and where it sits,
-        # because a bar that runs off the edge hides both.
-        current, place = TABS[tab][0], f"{tab + 1}/{len(TABS)}"
-        # Padded like everything else, unless the screen is so short that
-        # two rows of air here would cost the table below its own frame.
-        height = box_for(1) if sc.h >= 20 else 3
-        panel(sc, top, left, width, height, "")
-        bx, by, bw, _ = inside(left, top, width, height)
-        sc.put(by, bx, LEFT_ARROW, muted)
-        sc.put(by, bx + 2, fit(current, bw - 10), accent | curses.A_BOLD)
-        sc.put(by, bx + bw - len(place) - 2, place, muted)
-        sc.put(by, bx + bw - 1, RIGHT_ARROW, muted)
+
+    if sc.h < 20:
+        # No room for a masthead: name the app, the project and the tab.
+        sc.put(0, left, "token-cost", accent | curses.A_BOLD)
+        sc.put(0, max(left, sc.w - len(data.project) - 2), data.project, muted)
+        draw_nav(sc, tab, 1, left, width)
         sc.put(sc.h - 1, 2, fit(KEYS, sc.w - 4), muted)
-        return top + height
+        return 3
+
+    height = box_for(3)                    # title, a blank, the tabs
+    panel(sc, 0, left, width, height, "")
+    x, y, w, _ = inside(left, 0, width, height)
+
+    # Shed the trailing detail rather than run into the frame: the project
+    # goes first, then the version, and the name always survives.
+    mark = [(LOGO, accent), ("  token-cost", accent | curses.A_BOLD)]
+    tag = [(f" {version()}", muted)] if version() else []
+    where = [("  ·  ", muted), (data.project, curses.A_BOLD)]
+    for parts in (mark + tag + where, mark + tag, mark):
+        if sum(len(text) for text, _ in parts) <= w:
+            break
+    centred(sc, y, x, w, parts)
+    draw_nav(sc, tab, y + 2, x, w)
 
     sc.put(sc.h - 1, 2, fit(KEYS, sc.w - 4), muted)
-    return top + 3
+    return height + 1
 
 
 def run(stdscr, cwd: str) -> None:
