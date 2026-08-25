@@ -37,6 +37,8 @@ TABS = [
     ("Sessions", "sessions", None),
 ]
 
+SEARCHABLE = {4: "Tasks", 5: "Sessions"}
+
 GAP = 2                    # columns between table cells
 
 # Box-drawing and block glyphs are multi-byte in UTF-8, and curses only counts
@@ -81,6 +83,7 @@ if UNICODE:
     SEP, ELLIPSIS = "│", "…"
     LEFT_ARROW, RIGHT_ARROW = "‹", "›"
     KEYS = "Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q/Esc Quit"
+    FILTER_KEYS = "Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit"
 else:
     BAR, CAP = "=", "-"
     TRACK = "."
@@ -95,6 +98,7 @@ else:
     SEP, ELLIPSIS = "|", "~"
     LEFT_ARROW, RIGHT_ARROW = "<", ">"
     KEYS = "Click or Left/Right Tabs - Up/Down Scroll - r Refresh - q/Esc Quit"
+    FILTER_KEYS = "Click or Left/Right Tabs - Up/Down Scroll - r Refresh - q Quit"
 
 # Colour pairs
 C_ACCENT, C_MUTED, C_HEAD, C_TOTAL = 1, 2, 3, 4
@@ -117,6 +121,9 @@ class Tab:
 
     def __init__(self, data: "Data", index: int):
         _, mode, period = TABS[index]
+        self.mode = mode
+        self.query = ""
+        self._filtered = {}
         rows, self.scope = data.rows, ""
         if period:
             rows, self.scope = views.in_window(data.rows, period)
@@ -151,6 +158,41 @@ class Tab:
 
         if self.summary is not None:
             self.summary_title = self.summary.subtitle or "By Model"
+
+    def filtered(self, query: str):
+        """This tab with its named rows narrowed by a search query."""
+        if not query or self.mode not in ("tasks", "sessions"):
+            return self
+        folded = query.casefold()
+        got = self._filtered.get(query)
+        if got is None:
+            got = self._filtered[query] = FilteredTab(self, query, folded)
+        return got
+
+
+class FilteredTab:
+    """A task or session tab whose table contains only named matches."""
+
+    def __init__(self, base: Tab, query: str, folded: str):
+        matches = [
+            bucket for bucket in base.main.buckets
+            if folded in views.label_of(
+                bucket, ledger.PROMPT_CAP, views.UNKNOWN_LONG).casefold()
+        ]
+        tasks = (len(matches) if base.mode == "tasks"
+                 else sum(bucket["tasks"] for bucket in matches))
+        noun = "Tasks" if base.mode == "tasks" else "Sessions"
+        title = f"{len(matches)} of {len(base.main.buckets)} {noun}"
+        narrowed = views.View(base.main.columns, matches, title, tasks,
+                              base.main.hint)
+
+        self.mode = base.mode
+        self.query = query
+        self.scope = base.scope
+        self.view = self.main = narrowed
+        self.main_title = title
+        self.summary = base.summary
+        self.summary_title = base.summary_title
 
 
 class Overview:
@@ -204,11 +246,11 @@ class Data:
         self._tabs = {}
         self._overview = None
 
-    def tab(self, index: int) -> Tab:
+    def tab(self, index: int, query: str = "") -> Tab:
         got = self._tabs.get(index)
         if got is None:
             got = self._tabs[index] = Tab(self, index)
-        return got
+        return got.filtered(query)
 
     def overview(self) -> Overview:
         if self._overview is None:
@@ -239,6 +281,59 @@ class Data:
                 rendered(built.summary)
             return True
         return False
+
+
+class Search:
+    """Per-tab search text and the edit that is currently in progress."""
+
+    def __init__(self):
+        self.queries = {tab: "" for tab in SEARCHABLE}
+        self.editing = None
+        self.before = ""
+
+    def query(self, tab: int) -> str:
+        return self.queries.get(tab, "")
+
+    def begin(self, tab: int) -> None:
+        if tab not in SEARCHABLE:
+            return
+        self.editing = tab
+        self.before = self.queries[tab]
+
+    def commit(self) -> None:
+        self.editing = None
+
+    def cancel(self) -> None:
+        if self.editing is not None:
+            self.queries[self.editing] = self.before
+        self.editing = None
+
+    def clear(self, tab: int) -> None:
+        if tab in self.queries:
+            self.queries[tab] = ""
+
+    def input(self, tab: int, key: int, text: str | None) -> tuple[bool, bool]:
+        """Consume a search-edit key. Returns (handled, query changed)."""
+        if self.editing != tab:
+            return False, False
+        if key in (curses.KEY_ENTER, 10, 13):
+            self.commit()
+            return True, False
+        if key in (curses.KEY_BACKSPACE, 8, 127):
+            old = self.queries[tab]
+            self.queries[tab] = old[:-1]
+            return True, self.queries[tab] != old
+        if key == 21:                   # Ctrl+U: clear the input line
+            changed = bool(self.queries[tab])
+            self.queries[tab] = ""
+            return True, changed
+        if text and text.isprintable():
+            self.queries[tab] += text
+            return True, True
+        # Navigation keys belong to the input while it has focus; mouse and
+        # resize events still need the main loop so clicking a tab and
+        # resizing the terminal continue to work mid-search.
+        return key not in (curses.KEY_MOUSE, curses.KEY_RESIZE), False
 
 
 # --------------------------------------------------------------------------
@@ -745,13 +840,14 @@ def draw_sessions_summary(sc: Screen, view, top: int, left: int,
         sc.put(row, x + w - len(fig), fig, curses.A_BOLD)
 
 
-def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
+def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int,
+             query: str = ""):
     """Draw the active tab. Returns (visible rows, total rows) for scrolling."""
     label, mode, _ = TABS[tab]
     if mode == "overview":
         return draw_overview(sc, data, top, offset), 0
 
-    built = data.tab(tab)
+    built = data.tab(tab, query)
     view, summary, main = built.view, built.summary, built.main
     left, width = 2, sc.w - 4
     room = sc.h - top - 1
@@ -759,9 +855,12 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
     if not view.buckets:
         panel(sc, top, left, width, box_for(1), label)
         nx, ny, _, _ = inside(left, top, width, box_for(1))
-        sc.put(ny, nx,
-               caps(f"Nothing recorded in this window ({built.scope})."),
-               curses.color_pair(C_MUTED))
+        if built.query:
+            message = f'No {SEARCHABLE[tab].lower()} match "{built.query}".'
+        else:
+            message = caps(
+                f"Nothing recorded in this window ({built.scope}).")
+        sc.put(ny, nx, message, curses.color_pair(C_MUTED))
         return 0, 0
 
     if summary is None:
@@ -863,7 +962,19 @@ def draw_nav(sc: Screen, tab: int, row: int, x: int, width: int,
         at += LABEL_INSET + len(label) + gap
 
 
-def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
+def footer_for(tab: int, search: Search) -> str:
+    """The normal shortcuts, or the active filter and its controls."""
+    query = search.query(tab)
+    if search.editing == tab:
+        return f"Search: {query}{MARKER} · Enter Apply · Esc Cancel · Ctrl+U Clear"
+    if query:
+        return f"Filter: {query} · / Edit · Esc Clear · {FILTER_KEYS}"
+    if tab in SEARCHABLE:
+        return f"/ Search · {KEYS}"
+    return KEYS
+
+
+def draw_chrome(sc: Screen, data: Data, tab: int, search: Search) -> int:
     """Masthead, then the tab bar. Returns the first body row."""
     accent = curses.color_pair(C_ACCENT)
     muted = curses.color_pair(C_MUTED)
@@ -874,7 +985,7 @@ def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
         sc.put(0, left, "token-cost", accent | curses.A_BOLD)
         sc.put(0, max(left, sc.w - len(data.project) - 2), data.project, muted)
         draw_nav(sc, tab, 1, left, width)
-        sc.put(sc.h - 1, 2, fit(KEYS, sc.w - 4), muted)
+        sc.put(sc.h - 1, 2, fit(footer_for(tab, search), sc.w - 4), muted)
         return 3
 
     head = box_for(1)
@@ -902,7 +1013,7 @@ def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
     nx, ny, nw, _ = inside(left, joint, width, nav)
     draw_nav(sc, tab, ny, nx, nw, band_top=joint + 1, band_rows=nav - 2)
 
-    sc.put(sc.h - 1, 2, fit(KEYS, sc.w - 4), muted)
+    sc.put(sc.h - 1, 2, fit(footer_for(tab, search), sc.w - 4), muted)
     return joint + nav + 1
 
 
@@ -1019,6 +1130,7 @@ def run(stdscr, cwd: str) -> None:
     if curses.has_colors() and curses.COLORS >= 256:
         sc.hover = curses.color_pair(C_HOVER)
         sc.hover_muted = curses.color_pair(C_HOVER_MUTED)
+    search = Search()
     tab, offset = 0, 0
     capacity = total = 0
     painted = 0.0
@@ -1032,7 +1144,7 @@ def run(stdscr, cwd: str) -> None:
         if time.monotonic() - painted >= FRAME or not queued(stdscr):
             sc.measure()
             stdscr.erase()
-            top = draw_chrome(sc, data, tab)
+            top = draw_chrome(sc, data, tab, search)
             if not data.rows:
                 sc.put(top, 2,
                        f"No Token Usage Recorded Yet For {data.project}.")
@@ -1040,7 +1152,8 @@ def run(stdscr, cwd: str) -> None:
                        curses.color_pair(C_MUTED))
                 capacity = total = 0
             else:
-                capacity, total = draw_tab(sc, data, tab, top, offset)
+                capacity, total = draw_tab(
+                    sc, data, tab, top, offset, search.query(tab))
 
             # The last row belongs at the bottom of the box, not somewhere in
             # the middle with empty space under it. If a resize or a reload
@@ -1062,16 +1175,23 @@ def run(stdscr, cwd: str) -> None:
             pass
 
         try:
-            key = stdscr.getch()
+            event = stdscr.get_wch()
         except KeyboardInterrupt:
             # Ctrl+C is how plenty of people close a full-screen app. Quit
             # the way q does, rather than unwinding a traceback over a
             # terminal that curses is still holding.
             return
+        text = event if isinstance(event, str) else None
+        key = ord(event) if isinstance(event, str) else event
         page = max(1, capacity - 1)
-        if key in (ord("q"), ord("Q")):
-            return
-        elif key == 27:
+        if key != 27:
+            handled, changed = search.input(tab, key, text)
+            if handled:
+                if changed:
+                    offset = 0
+                continue
+
+        if key == 27:
             # Esc quits -- but 27 is also the first byte of every arrow and
             # function key, and of every mouse report an old ncurses can't
             # parse. The tell is what follows: a sequence's remaining bytes
@@ -1091,6 +1211,7 @@ def run(stdscr, cwd: str) -> None:
                 elif wheel == 0:
                     target = sc.nav_target(*sc.mouse)
                     if target is not None:
+                        search.commit()
                         tab, offset = target, 0
             else:
                 stdscr.nodelay(True)
@@ -1099,12 +1220,27 @@ def run(stdscr, cwd: str) -> None:
                     pass
                 stdscr.nodelay(False)
                 if follower == -1:
-                    return
+                    if search.editing == tab:
+                        search.cancel()
+                        offset = 0
+                    elif search.query(tab):
+                        search.clear(tab)
+                        offset = 0
+                    else:
+                        return
+        elif key in (ord("q"), ord("Q")):
+            return
+        elif key == ord("/") and tab in SEARCHABLE:
+            search.begin(tab)
+            offset = 0
         elif key in (curses.KEY_RIGHT, ord("\t"), ord("l")):
+            search.commit()
             tab, offset = (tab + 1) % len(TABS), 0
         elif key in (curses.KEY_LEFT, curses.KEY_BTAB, ord("h")):
+            search.commit()
             tab, offset = (tab - 1) % len(TABS), 0
         elif ord("1") <= key <= ord("6"):
+            search.commit()
             tab, offset = min(key - ord("1"), len(TABS) - 1), 0
         elif key in (curses.KEY_DOWN, ord("j")):
             offset = min(offset + 1, furthest)
@@ -1144,6 +1280,7 @@ def run(stdscr, cwd: str) -> None:
             elif state & left:
                 target = sc.nav_target(my, mx)
                 if target is not None:
+                    search.commit()
                     tab, offset = target, 0
 
 

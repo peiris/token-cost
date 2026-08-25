@@ -30,13 +30,14 @@ def capture(stdscr, cwd: str, tab: int) -> list:
 
     data = tui.Data(cwd)
     screen = tui.Screen(stdscr)
+    search = tui.Search()
 
     # Draw every tab up to the requested one, the way arrowing there would,
     # so this catches anything a previous frame fails to clean up.
     for step in range(tab + 1):
         screen.measure()
         stdscr.erase()
-        top = tui.draw_chrome(screen, data, step)
+        top = tui.draw_chrome(screen, data, step, search)
         if data.rows:
             tui.draw_tab(screen, data, step, top, 0)
         else:

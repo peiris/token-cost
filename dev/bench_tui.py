@@ -115,12 +115,13 @@ def child(cwd: str, frames: int, out_path: str, root: str | None) -> None:
         startup = (time.perf_counter() - t0) * 1000
 
         sc = tui.Screen(stdscr)
+        search = tui.Search()
         results = {"startup_ms": startup, "rows": len(data.rows), "tabs": []}
 
         def frame(tab: int) -> float:
             sc.measure()
             stdscr.erase()
-            top = tui.draw_chrome(sc, data, tab)
+            top = tui.draw_chrome(sc, data, tab, search)
             tui.draw_tab(sc, data, tab, top, 0)
             stdscr.refresh()
             return time.perf_counter()

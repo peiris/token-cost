@@ -304,9 +304,12 @@ show:
   Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit
 ```
 
-Tabs: **Overview**, **Today**, **This Week**, **This Month**, **Tasks**,
+Tabs: **Overview**, **Today**, **This Week**, **This Month**, **All Tasks**,
 **Sessions**. `←`/`→` or `1`–`6` to move between them, `↑`/`↓` and PgUp/PgDn
 to scroll, `g`/`G` for top and bottom, `r` to re-read the ledger, `q` to quit.
+On **All Tasks** and **Sessions**, `/` opens a case-insensitive name search;
+typing filters the table live, Enter keeps the filter, and Esc cancels an edit
+or clears an applied filter.
 The mouse counts too: click a tab (or the arrows in the compact nav) to open
 it, point at a table row to light it up, and use the wheel to scroll.
 
@@ -337,7 +340,7 @@ scrollable, however many there are:
   │  TOTAL                                                          393   81.4k    21.8M   474.4k  $16.14  │
   │                                                                                                        │
   ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-  Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit
+  / Search · Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit
 ```
 
 ### Starting it

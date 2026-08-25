@@ -126,6 +126,11 @@ class App:
     def close(self) -> int:
         """Ask it to quit; return its exit status, killing it if it won't."""
         try:
+            # q is ordinary text while the search field has focus. Esc first
+            # leaves that mode (or quits directly when no search is active),
+            # then q closes whichever state remains.
+            self.send(b"\x1b")
+            self.read(0.1)
             self.send(b"q")
         except OSError:
             pass
@@ -219,6 +224,27 @@ def ledger_has_rows(cwd: str) -> bool:
     sys.path.insert(0, str(TUI.parent))
     import ledger
     return bool(ledger.read_ledger(ledger.ledger_path(cwd)))
+
+
+def filter_case(cwd: str, mode: str):
+    """An ASCII name fragment that narrows, but does not empty, a table."""
+    sys.path.insert(0, str(TUI.parent))
+    import ledger
+    import views
+
+    rows = ledger.read_ledger(ledger.ledger_path(cwd))
+    buckets = (views.task_buckets(rows) if mode == "tasks"
+               else views.session_buckets(rows))
+    labels = [views.label_of(b, ledger.PROMPT_CAP, views.UNKNOWN_LONG)
+              for b in buckets]
+    candidates = []
+    for label in labels:
+        candidates.extend(re.findall(r"[A-Za-z0-9_-]{4,}", label))
+    for query in sorted(set(candidates), key=lambda s: (-len(s), s.casefold())):
+        matches = sum(query.casefold() in label.casefold() for label in labels)
+        if 0 < matches < len(labels):
+            return query, matches, len(labels)
+    return None
 
 
 def broke(frame: str) -> str:
@@ -491,6 +517,59 @@ def run_compact_mouse(cwd: str) -> list:
     return problems
 
 
+def run_search(cwd: str) -> list:
+    """Search both named tables, edit a query, cancel it, and clear it."""
+    problems = []
+    app = App(cwd, 40, 140)
+    if not app.wait_for(TABS_FIRST):
+        app.close()
+        return ["search: never drew a first frame"]
+
+    for key, mode, noun in ((b"5", "tasks", "Tasks"),
+                            (b"6", "sessions", "Sessions")):
+        case = filter_case(cwd, mode)
+        if case is None:
+            problems.append(f"search: no usable {mode} fixture")
+            continue
+        query, matches, total = case
+        typed = query.swapcase()
+        title = f"{matches} Of {total} {noun}"
+        unfiltered = "Every Task" if mode == "tasks" else f"{total} Sessions"
+
+        app.send(key)
+        app.read(0.3)
+        app.send(b"/" + typed.encode("ascii"))
+        if not app.wait_for(title):
+            problems.append(f"search: {mode} query did not narrow to {title}")
+            continue
+        if f"Search: {typed}" not in app.screen():
+            problems.append(f"search: {mode} input was not visible")
+
+        app.send(b"\x7f")
+        if not app.wait_for(f"Search: {typed[:-1]}"):
+            problems.append(f"search: {mode} backspace did not edit the query")
+        app.send(b"\x1b")              # cancel restores the original empty query
+        if not app.wait_for(unfiltered):
+            problems.append(f"search: {mode} Esc did not cancel the edit")
+
+        app.send(b"/" + typed.encode("ascii") + b"\r")
+        if not app.wait_for(title):
+            problems.append(f"search: {mode} query did not survive Enter")
+        app.send(b"\x1b")              # outside input, Esc clears the filter
+        if not app.wait_for(unfiltered):
+            problems.append(f"search: {mode} Esc did not clear the filter")
+        if not app.alive():
+            problems.append(f"search: {mode} filtering quit the app")
+            break
+
+    status = app.close()
+    if status != 0:
+        problems.append(f"search: exited {status}, expected 0")
+    if found := broke(app.buffer):
+        problems.append(f"search: crashed\n{found}")
+    return problems
+
+
 def show(cwd: str, tab: int, rows: int, cols: int) -> None:
     """Print one frame, so a layout can be eyeballed from outside a terminal."""
     app = App(cwd, rows, cols)
@@ -531,6 +610,9 @@ def main() -> int:
         problems += found
         found = run_compact_mouse(cwd)
         print(f"compact mouse: {'FAIL' if found else 'ok'}")
+        problems += found
+        found = run_search(cwd)
+        print(f"search: {'FAIL' if found else 'ok'}")
         problems += found
 
     for p in problems:
