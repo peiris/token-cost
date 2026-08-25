@@ -140,8 +140,26 @@ histories stop at the latest 25. Ask for more when you want it:
 /token-cost tasks 100      the latest 100
 ```
 
-When the list is cut off, the TOTAL row covers the tasks shown rather than the
-whole project; the header line still carries the project-wide count.
+A cut-off list is footed twice, and each footer says what it covers — a
+subtotal of the rows on screen is not the project's total, and labelling both
+of them TOTAL would invite exactly that misreading:
+
+```
+Project: token-cost    16 tasks    latest 5 of 16 tasks
+
+WHEN         TASK                                                  MODEL      INPUT  OUTPUT  CACHE R  CACHE W  EST. $
+08-25 10:41  /token-cost tasks                                     opus-5         1     189    26.2k     3.5k   $0.05
+08-25 10:22  Add a per-task breakdown to the report                opus-5        33    4.6k   951.2k    26.4k   $0.85
+08-25 09:58  Slash commands should record as the command, not th…  opus-5        17    1.4k   446.6k     3.5k   $0.29
+08-25 09:23  Save the prompt that started each task                opus-5 +1     47   11.5k     3.4M    74.7k   $2.28
+08-24 13:31  Add update instructions to the README                 opus-5        10    1.2k   427.4k     3.4k   $0.28
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+SHOWN (5)                                                                       108   18.8k     5.2M   111.6k   $3.76
+ALL (16)                                                                        393   81.4k    21.8M   474.4k  $16.14
+```
+
+`ALL` here matches the TOTAL of every other view; `SHOWN` is just the five
+rows above it.
 
 ### `/token-cost sessions` — by session
 

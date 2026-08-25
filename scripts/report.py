@@ -87,23 +87,34 @@ NUMERIC_COLS = [
 ]
 
 
-def render(columns, buckets, overrides=None) -> str:
-    """`overrides` replaces a TOTAL cell by header name. Needed for TASKS:
+def render(columns, buckets, overrides=None, summaries=None) -> str:
+    """`overrides` replaces a summary cell by header name. Needed for TASKS:
     buckets keyed by model each count their own tasks, so a turn that used
     both opus and a haiku subagent would be counted twice if we simply
-    summed the per-bucket figures."""
+    summed the per-bucket figures.
+
+    `summaries` is a list of (label, buckets) pairs to print below the rule,
+    defaulting to one TOTAL over the rows shown. A truncated list passes two,
+    so a subtotal of the visible rows can never be read as the project's
+    total -- the difference between those two numbers is the whole point of
+    printing both.
+    """
     overrides = overrides or {}
+    summaries = summaries or [("TOTAL", buckets)]
     headers = [c[0] for c in columns]
     aligns = [c[1] for c in columns]
     body = [[str(c[2](b)) for c in columns] for b in buckets]
-    total = [
-        str(overrides[c[0]]) if c[0] in overrides
-        else (str(c[3](buckets)) if c[3] else "")
-        for c in columns
-    ]
-    total[0] = "TOTAL"
+    foot = []
+    for label, subset in summaries:
+        cells = [
+            str(overrides[c[0]]) if c[0] in overrides
+            else (str(c[3](subset)) if c[3] else "")
+            for c in columns
+        ]
+        cells[0] = label
+        foot.append(cells)
 
-    grid = [headers] + body + [total]
+    grid = [headers] + body + foot
     widths = [max(len(row[i]) for row in grid) for i in range(len(columns))]
 
     def line(cells):
@@ -113,7 +124,8 @@ def render(columns, buckets, overrides=None) -> str:
         ).rstrip()
 
     rule = "─" * (sum(widths) + 2 * (len(widths) - 1))
-    return "\n".join([line(headers)] + [line(r) for r in body] + [rule, line(total)])
+    return "\n".join([line(headers)] + [line(r) for r in body] + [rule]
+                     + [line(f) for f in foot])
 
 
 def main() -> int:
@@ -146,6 +158,7 @@ def main() -> int:
         return 0
 
     hint = "Run /token-cost tasks for a per-task breakdown."
+    summaries = None
 
     if mode.startswith("task"):
         # One row per task: the (session, turn) pair the recorder writes.
@@ -153,24 +166,31 @@ def main() -> int:
             rows, lambda r: (r.get("session") or "?", r.get("turn") or 0))
         buckets.sort(key=lambda b: (b.get("first_ts") or "", b["key"][1]),
                      reverse=True)
-        total_tasks = len(buckets)
+        every = buckets
+        total_tasks = len(every)
         limit = TASK_LIMIT
         if len(args) > 1:
             if args[1].lower() in ("all", "full"):
                 limit = None
             elif args[1].isdigit():
                 limit = max(int(args[1]), 1)
-        if limit is not None:
-            buckets = buckets[:limit]
+        buckets = every[:limit] if limit is not None else every
         columns = [
             ("WHEN", "<", started, None),
             ("TASK", "<", lambda b: label_of(b, TASK_WIDTH), None),
             ("MODEL", "<", models_cell, None),
         ] + NUMERIC_COLS[1:]   # a task counting its own tasks says "1" forever
-        subtitle = (f"latest {len(buckets)} tasks" if len(buckets) < total_tasks
-                    else "every task")
-        hint = ("Run /token-cost tasks all for the full list."
-                if len(buckets) < total_tasks else "")
+        if len(buckets) < total_tasks:
+            # Two footers, both named for what they cover. One row labelled
+            # TOTAL that silently means "the 25 rows above" is how you get a
+            # $20 total sitting under a $1,300 project.
+            summaries = [(f"SHOWN ({len(buckets)})", buckets),
+                         (f"ALL ({total_tasks})", every)]
+            subtitle = f"latest {len(buckets)} of {total_tasks} tasks"
+            hint = "Run /token-cost tasks all for the full list."
+        else:
+            subtitle = "every task"
+            hint = ""
     elif mode.startswith("session"):
         buckets = ledger.aggregate(rows, lambda r: r.get("session") or "?")
         buckets.sort(key=lambda b: b.get("first_ts") or "", reverse=True)
@@ -202,7 +222,7 @@ def main() -> int:
         print()
     print(f"Project: {project}    {tasks} tasks    {subtitle}")
     print()
-    print(render(columns, buckets, {"TASKS": tasks}))
+    print(render(columns, buckets, {"TASKS": tasks}, summaries))
     print()
     print("Estimated from published API rates; subscription plans are not billed per token.")
     if hint:
