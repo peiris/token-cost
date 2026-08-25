@@ -75,13 +75,7 @@ if UNICODE:
     T_DOWN, T_UP = "┬", "┴"
     HALF_DOWN, HALF_UP = "▄", "▀"
     LOGO = "▂▄▆█"          # a rising bar chart: what this thing is about
-    # A filled button with its four corner quadrants cut away. Half blocks
-    # are half-WIDTH and full height -- they widen a rectangle, they do not
-    # round it. Quadrants leave the corner cell dark, which is the only way
-    # a character grid can take a bite out of a corner.
-    PILL_TL, PILL_TR = "▗", "▖"
-    PILL_BL, PILL_BR = "▝", "▘"
-    PILL_TOP, PILL_BOTTOM = "▄", "▀"
+    MARKER = "▌"           # the bar down the left of the selected tab
     SEP, ELLIPSIS = "│", "…"
     LEFT_ARROW, RIGHT_ARROW = "‹", "›"
     KEYS = "←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit"
@@ -94,8 +88,7 @@ else:
     T_DOWN, T_UP = "+", "+"
     HALF_DOWN, HALF_UP = None, None
     LOGO = "..:#"
-    PILL_TL = PILL_TR = PILL_BL = PILL_BR = ""
-    PILL_TOP = PILL_BOTTOM = ""
+    MARKER = "|"
     SEP, ELLIPSIS = "|", "~"
     LEFT_ARROW, RIGHT_ARROW = "<", ">"
     KEYS = "Left/Right Tabs - Up/Down Scroll - r Refresh - q Quit"
@@ -515,66 +508,63 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
 # --------------------------------------------------------------------------
 
 def nav_cells(labels):
-    """Tab labels as buttons: padded, with a space between neighbours."""
+    """Tab labels with a column either side, so neighbours don't touch."""
     return [f" {label} " for label in labels]
 
 
-def draw_nav(sc: Screen, tab: int, y: int, x: int, width: int,
-             tall: bool = True) -> None:
-    """Tab buttons, the selected one filled with its corners rounded off.
+def draw_nav(sc: Screen, tab: int, row: int, x: int, width: int,
+             band_top: int = None, band_rows: int = 1) -> None:
+    """Tab names, the selected one marked by a bar down its left edge.
 
-    Three rows when there is room: the corner cells hold quadrant glyphs, so
-    the fill stops short of each corner and the button reads as rounded.
-    That cannot be done in one row -- a corner needs a cell above or below
-    the text to be cut out of. Labels sit on the middle row either way.
+    A bar rather than a fill: it runs the full height of the box whatever
+    that height is, and being a glyph in its own cell it can't disagree with
+    the frame around it the way a background does.
     """
     labels = [label for label, _, _ in TABS]
     cells = nav_cells(labels)
-    row = y + 1 if tall else y
+    accent = curses.color_pair(C_ACCENT)
+    muted = curses.color_pair(C_MUTED)
+    band_top = row if band_top is None else band_top
+
     span = sum(len(c) for c in cells) + len(cells) - 1
     if span > width:                       # no room: name the current tab
         place = f"{tab + 1}/{len(TABS)}"
         centred(sc, row, x, width, [
-            (LEFT_ARROW + " ", curses.color_pair(C_MUTED)),
-            (labels[tab], curses.color_pair(C_ACCENT) | curses.A_BOLD),
-            (f"  {place} ", curses.color_pair(C_MUTED)),
-            (RIGHT_ARROW, curses.color_pair(C_MUTED)),
+            (LEFT_ARROW + " ", muted),
+            (labels[tab], accent | curses.A_BOLD),
+            (f"  {place} ", muted),
+            (RIGHT_ARROW, muted),
         ])
         return
 
-    accent = curses.color_pair(C_ACCENT)
-    fill = accent | curses.A_REVERSE | curses.A_BOLD
     at = x + max(0, (width - span) // 2)
     for i, cell in enumerate(cells):
-        if i != tab:
-            sc.put(row, at, cell, curses.color_pair(C_MUTED))
-        elif tall and PILL_TOP:
-            middle = len(cell) - 2
-            sc.put(y, at, PILL_TL + PILL_TOP * middle + PILL_TR, accent)
-            sc.put(y + 1, at, cell, fill)
-            sc.put(y + 2, at, PILL_BL + PILL_BOTTOM * middle + PILL_BR, accent)
+        if i == tab:
+            for line in range(band_top, band_top + band_rows):
+                sc.put(line, at, MARKER, accent)
+            sc.put(row, at + 1, cell[1:], accent | curses.A_BOLD)
         else:
-            sc.put(row, at, cell, fill)
+            sc.put(row, at, cell, muted)
         at += len(cell) + 1
 
 
 def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
-    """Masthead and tab row, in one frame. Returns the first body row."""
+    """Masthead, then the tab bar. Returns the first body row."""
     accent = curses.color_pair(C_ACCENT)
     muted = curses.color_pair(C_MUTED)
     left, width = 2, sc.w - 4
 
     if sc.h < 20:
-        # No room for a masthead: name the app, the project and the tab.
+        # No room for frames: name the app, the project and the tabs.
         sc.put(0, left, "token-cost", accent | curses.A_BOLD)
         sc.put(0, max(left, sc.w - len(data.project) - 2), data.project, muted)
-        draw_nav(sc, tab, 1, left, width, tall=False)
+        draw_nav(sc, tab, 1, left, width)
         sc.put(sc.h - 1, 2, fit(KEYS, sc.w - 4), muted)
         return 3
 
-    height = box_for(4)                    # the title, then a three-row nav
-    panel(sc, 0, left, width, height, "")
-    x, y, w, _ = inside(left, 0, width, height)
+    head = box_for(1)
+    panel(sc, 0, left, width, head, "")
+    x, y, w, _ = inside(left, 0, width, head)
 
     # Shed the trailing detail rather than run into the frame: the project
     # goes first, then the version, and the name always survives.
@@ -585,10 +575,16 @@ def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
         if sum(len(text) for text, _ in parts) <= w:
             break
     centred(sc, y, x, w, parts)
-    draw_nav(sc, tab, y + 1, x, w)
+
+    # Tucked under the masthead with no gap: the two are one piece of
+    # chrome, and the space belongs between chrome and content instead.
+    nav = box_for(1)
+    panel(sc, head, left, width, nav, "")
+    nx, ny, nw, _ = inside(left, head, width, nav)
+    draw_nav(sc, tab, ny, nx, nw, band_top=head + 1, band_rows=nav - 2)
 
     sc.put(sc.h - 1, 2, fit(KEYS, sc.w - 4), muted)
-    return height + 1
+    return head + nav + 1
 
 
 def run(stdscr, cwd: str) -> None:
