@@ -78,6 +78,7 @@ inside your Claude Code data directory if you want the recorded history gone.
 | `/token-cost today`    | today only, broken down by model               |
 | `/token-cost week`     | the last 7 days, broken down by model          |
 | `/token-cost month`    | the last 30 days, broken down by model         |
+| `/token-cost ui`       | how to open the full-screen UI                 |
 
 They all read the same ledger and end with a TOTAL row; they differ only in
 what a row means, and any of them can be narrowed to a period. The examples
@@ -138,6 +139,30 @@ first one seen.
 Every task is listed. No cut-off, no "latest N" — a table that quietly drops
 rows is worse than a long one, because nothing on screen tells you something
 is missing. Use a period filter when you want less (below).
+
+In the conversation there is one limit, and it isn't ours: inline shell output
+reaches Claude through the Bash tool, which carries about 30,000 characters.
+Past that the model is handed a file path and a preview instead of a table, so
+printing more doesn't produce a longer table — it produces none. When a task
+list would cross that line, the command prints the totals and says where the
+rows are rather than pretending:
+
+```
+Project: labfriend-v2    930 tasks    every task
+
+WHEN         TASK                          MODEL       INPUT  OUTPUT  CACHE R  CACHE W     EST. $
+─────────────────────────────────────────────────────────────────────────────────────────────────
+TOTAL                                                  82.9k    7.4M  1479.0M    34.0M  $1,325.84
+
+930 rows is 91,433 characters — past the ~30,000 a conversation
+can carry, so the table would arrive as a file preview rather than rows.
+
+  token-cost                 the full list, scrollable
+  /token-cost tasks week     the last 7 days, in chat
+```
+
+Run `report.py` from a shell and there is no budget at all — it prints all 930
+rows. The ceiling only applies to what has to travel through a chat message.
 
 ### `/token-cost sessions` — by session
 
@@ -237,6 +262,93 @@ python3 scripts/record.py --backfill --force --cwd "$PWD"
 That rebuilds the ledger from the transcripts still on disk, so anything older
 than Claude Code's retention window is dropped. It is how you re-label old
 rows after an upgrade, but it trades history away to do it.
+
+## The UI
+
+`/token-cost` prints a table into the conversation. `token-cost` opens the
+same ledger as a full-screen app, with tabs and no limit on how much it can
+show:
+
+```
+  token-cost                                                                            token-cost
+
+  Overview │ Today │ This Week │ This Month │ Tasks │ Sessions
+  ━━━━━━━━
+
+  ╭─ Project ──────────────────╮  ╭─ Models ───────────────────────────────────────────────╮
+  │ 16 tasks                   │  │ opus-5            16 tasks                      $15.85 │
+  │ 2026-08-23 → 2026-08-25    │  │ haiku-4-5          3 tasks                       $0.29 │
+  │ $16.14                     │  │                                                        │
+  ╰────────────────────────────╯  ╰────────────────────────────────────────────────────────╯
+
+  ╭─ Cost per day ───────────────────────────────────────────────────────────────────────────────╮
+  │ 08-23 ████████████████████████████████████████████████████████████████████████         $7.25 │
+  │ 08-24 █████████████████████████████████████████████████████▊                           $5.41 │
+  │ 08-25 ██████████████████████████████████▌                                              $3.48 │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+
+  ╭─ Most expensive tasks ───────────────────────────────────────────────────────────────────────╮
+  │ Import history automatically on session start instead of asking                        $2.70 │
+  │ Dedupe requests by requestId, we're counting every content block                       $2.55 │
+  │ Add a --backfill flag for sessions that predate the plugin                             $2.30 │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+
+  ←/→ tabs · ↑/↓ scroll · r refresh · q quit
+```
+
+Tabs: **Overview**, **Today**, **This Week**, **This Month**, **Tasks**,
+**Sessions**. `←`/`→` or `1`–`6` to move between them, `↑`/`↓` and PgUp/PgDn
+to scroll, `g`/`G` for top and bottom, `r` to re-read the ledger, `q` to quit.
+
+The Tasks tab is the one the conversation can't carry — every task on record,
+scrollable, however many there are:
+
+```
+  token-cost                                                                                              token-cost
+
+  Overview │ Today │ This Week │ This Month │ Tasks │ Sessions
+                                              ━━━━━
+
+  every task
+
+  WHEN         TASK                                               MODEL      INPUT  OUTPUT  CACHE R  CACHE W  EST. $
+  08-25 10:41  /token-cost tasks                                  opus-5         1     189    26.2k     3.5k   $0.05
+  08-25 10:22  Add a per-task breakdown to the report             opus-5        33    4.6k   951.2k    26.4k   $0.85
+  08-25 09:58  Slash commands should record as the command, not…  opus-5        17    1.4k   446.6k     3.5k   $0.29
+  08-25 09:23  Save the prompt that started each task             opus-5 +1     47   11.5k     3.4M    74.7k   $2.28
+  08-24 13:31  Add update instructions to the README              opus-5        10    1.2k   427.4k     3.4k   $0.28
+  08-24 13:06  Publish the plugin to the marketplace              opus-5        25    5.4k     1.4M    15.7k   $1.02
+  08-24 10:05  Add a today view broken down by model              opus-5        20    4.6k     1.5M    17.6k   $1.02
+  08-24 09:33  /token-cost sessions                               opus-5         1     202    28.7k     5.2k   $0.07
+  08-24 09:20  Guard the sync with a lock, two sessions can race  opus-5        17    1.5k   462.5k     5.1k   $0.32
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  TOTAL                                                                        393   81.4k    21.8M   474.4k  $16.14
+  ←/→ tabs · ↑/↓ scroll · r refresh · q quit
+```
+
+### Starting it
+
+```
+/token-cost ui
+```
+
+prints the command to run. It has to be run from your own terminal: a slash
+command's shell output is captured text with no TTY attached, so a
+full-screen app can't live inside Claude Code. To make it a command you can
+type anywhere:
+
+```
+ln -s <plugin>/bin/token-cost ~/.local/bin/token-cost
+token-cost
+```
+
+The shim resolves the newest installed copy each time it runs rather than the
+one it happens to sit next to, so plugin updates don't leave the symlink
+pointing at a stale version.
+
+It needs nothing beyond `python3` — the UI is stdlib `curses`. Box-drawing and
+colour are used when the locale supports them and ASCII stands in when it
+doesn't, so `LC_ALL=C` degrades instead of drawing blanks.
 
 ## Where the data lives
 

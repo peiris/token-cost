@@ -1,99 +1,29 @@
 #!/usr/bin/env python3
 """Render the project's token ledger as a table.
 
-Usage: report.py [--cwd PATH] [days|tasks|sessions] [today|week|month]
+Usage: report.py [--cwd PATH] [--budget N] [days|tasks|sessions|ui] [today|week|month]
+
+What a view contains lives in views.py; this file only knows how to print one
+as plain text. `--budget` caps how many characters that print may occupy --
+see budget_notice for why a report ever declines to draw itself.
 """
 
 from __future__ import annotations
 
-import re
 import sys
-from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import ledger  # noqa: E402
+import views  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-
-TASK_WIDTH = 52      # room for a prompt to be recognisable, not complete
-TITLE_WIDTH = 34
-
-# The only thing that ever narrows a report. Every view prints every row it
-# has: a table that quietly drops rows is worse than a long one, because you
-# cannot tell from looking at it that anything is missing.
-PERIODS = {"today": 1, "day": 1, "week": 7, "month": 30}
-
-
-def short_model(model: str) -> str:
-    """claude-haiku-4-5-20251001 -> haiku-4-5"""
-    return re.sub(r"-\d{8}$", "", re.sub(r"^claude-", "", model))
-
-
-def models_cell(b: dict) -> str:
-    """The model a task mostly ran on, plus a count of the others.
-
-    A task that spawns subagents can touch three models; naming them all
-    would swamp the row, and the one that carried the spend is the one
-    worth seeing.
-    """
-    models = b.get("models") or []
-    if not models:
-        return "?"
-    if len(models) == 1:
-        return short_model(models[0])
-    return f"{short_model(models[0])} +{len(models) - 1}"
-
-
-def label_of(b: dict, width: int) -> str:
-    """A bucket's prompt, or a dash for rows recorded before prompts were."""
-    return ledger.condense(b.get("prompt") or "\u2014", width)
-
-
-def cache_write(b: dict) -> int:
-    return b["cache_write_5m"] + b["cache_write_1h"]
-
-
-def started(b: dict) -> str:
-    ts = b.get("first_ts")
-    if not ts:
-        return "?"
-    try:
-        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except ValueError:
-        return "?"
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone().strftime("%m-%d %H:%M")
-
-
-# A column is (header, align, cell_fn, total_fn). total_fn takes the full
-# bucket list; None means the TOTAL row leaves the cell blank.
-def token_col(header, get):
-    return (header, ">",
-            lambda b: ledger.fmt_tokens(get(b)),
-            lambda bs: ledger.fmt_tokens(sum(get(b) for b in bs)))
-
-
-NUMERIC_COLS = [
-    ("TASKS", ">", lambda b: b["tasks"], lambda bs: sum(b["tasks"] for b in bs)),
-    token_col("INPUT", lambda b: b["input"]),
-    token_col("OUTPUT", lambda b: b["output"]),
-    token_col("CACHE R", lambda b: b["cache_read"]),
-    token_col("CACHE W", cache_write),
-    ("EST. $", ">",
-     lambda b: ledger.fmt_usd(b["cost"], b["cost_known"]),
-     lambda bs: ledger.fmt_usd(sum(b["cost"] for b in bs),
-                               all(b["cost_known"] for b in bs))),
-]
+PLUGIN_ROOT = HERE.parent
 
 
 def render(columns, buckets, overrides=None) -> str:
-    """`overrides` replaces a TOTAL cell by header name. Needed for TASKS:
-    buckets keyed by model each count their own tasks, so a turn that used
-    both opus and a haiku subagent would be counted twice if we simply
-    summed the per-bucket figures."""
+    """`overrides` replaces a TOTAL cell by header name."""
     overrides = overrides or {}
     headers = [c[0] for c in columns]
     aligns = [c[1] for c in columns]
@@ -118,50 +48,73 @@ def render(columns, buckets, overrides=None) -> str:
     return "\n".join([line(headers)] + [line(r) for r in rows] + [rule, line(total)])
 
 
-def window(period: str):
-    """The local calendar days a period covers, inclusive, as ISO strings.
+def summary_only(view) -> str:
+    """Headers and footer, for when the rows themselves cannot be printed.
 
-    Rolling rather than calendar-aligned: "week" is the last seven days
-    including today, not whatever is left of the current week.
+    The header row comes along because a line of numbers with nothing naming
+    the columns is a puzzle, not a summary.
     """
-    last = datetime.now().astimezone().date()
-    first = last - timedelta(days=PERIODS[period] - 1)
-    return first.isoformat(), last.isoformat()
+    lines = render(view.columns, view.buckets, view.overrides).split("\n")
+    return "\n".join([lines[0], lines[-2], lines[-1]])
 
 
-def describe(period: str, first: str, last: str) -> str:
-    if PERIODS[period] == 1:
-        return f"today, {last}"
-    return f"last {PERIODS[period]} days, {first} → {last}"
+def budget_notice(view, table: str) -> str:
+    """Why a table isn't here, and where to read it instead.
+
+    Inline shell output reaches the conversation through the Bash tool, which
+    carries about 30k characters; past that the model is handed a file path
+    and a preview rather than a table. Printing 90k anyway doesn't produce a
+    long table, it produces no table. So say so, keep the totals -- which are
+    the part that still fits -- and point at the UI, which has no ceiling.
+    """
+    return "\n".join([
+        f"{len(view.buckets):,} rows is {len(table):,} characters — past the"
+        " ~30,000 a conversation",
+        "can carry, so the table would arrive as a file preview rather than rows.",
+        "",
+        "  token-cost                 the full list, scrollable",
+        "  /token-cost tasks week     the last 7 days, in chat",
+    ])
 
 
-def parse_args(args):
-    """(mode, period). A period on its own reports by model, which is what
-    `/token-cost today` has always done; with a mode it just narrows it."""
-    mode = period = None
-    for arg in args:
-        arg = arg.lower()
-        if arg in PERIODS:
-            period = arg
-        elif arg.startswith("task"):
-            mode = "tasks"
-        elif arg.startswith("session"):
-            mode = "sessions"
-        elif arg.startswith("day") or arg.startswith("date"):
-            mode = "days"
-    if mode is None:
-        mode = "models" if period else "days"
-    return mode, period
+def launch_block() -> str:
+    """What `/token-cost ui` prints: how to start the terminal UI."""
+    tui = PLUGIN_ROOT / "scripts" / "tui.py"
+    shim = PLUGIN_ROOT / "bin" / "token-cost"
+    return "\n".join([
+        "token-cost UI — tabs for Overview, Today, This Week, This Month,",
+        "Tasks and Sessions, with no limit on how much it can show.",
+        "",
+        "It needs a real terminal, so run it yourself — a slash command's",
+        "output is captured text, which is no place for a full-screen app.",
+        "",
+        f"    python3 {tui}",
+        "",
+        "Or install it once, and it stays current across plugin updates:",
+        "",
+        f"    ln -s {shim} ~/.local/bin/token-cost",
+        "    token-cost",
+    ])
 
 
 def main() -> int:
     args = sys.argv[1:]
     cwd = str(Path.cwd())
+    budget = 0
     if "--cwd" in args:
         i = args.index("--cwd")
         cwd = args[i + 1]
         del args[i:i + 2]
-    mode, period = parse_args(args)
+    if "--budget" in args:
+        i = args.index("--budget")
+        budget = int(args[i + 1])
+        del args[i:i + 2]
+
+    if any(a.lower() in ("ui", "tui") for a in args):
+        print(launch_block())
+        return 0
+
+    mode, period = views.parse_args(args)
 
     # Pull in any sessions that predate the plugin, or that another machine
     # recorded. Near-free once a project is synced, and it means the table is
@@ -185,61 +138,29 @@ def main() -> int:
 
     scope = ""
     if period:
-        first, last = window(period)
-        rows = [r for r in rows if first <= ledger.local_day(r.get("ts")) <= last]
-        scope = describe(period, first, last)
+        rows, scope = views.in_window(rows, period)
         if not rows:
             print(f"No token usage recorded for {project} in that window ({scope}).")
             return 0
 
-    hint = "Run /token-cost tasks for a per-task breakdown."
+    view = views.build(rows, mode, scope)
+    table = render(view.columns, view.buckets, view.overrides)
 
-    if mode == "tasks":
-        # One row per task: the (session, turn) pair the recorder writes.
-        buckets = ledger.aggregate(
-            rows, lambda r: (r.get("session") or "?", r.get("turn") or 0))
-        buckets.sort(key=lambda b: (b.get("first_ts") or "", b["key"][1]),
-                     reverse=True)
-        columns = [
-            ("WHEN", "<", started, None),
-            ("TASK", "<", lambda b: label_of(b, TASK_WIDTH), None),
-            ("MODEL", "<", models_cell, None),
-        ] + NUMERIC_COLS[1:]   # a task counting its own tasks says "1" forever
-        subtitle = scope or "every task"
-        hint = "" if period else "Narrow it with /token-cost tasks week or tasks month."
-    elif mode == "sessions":
-        buckets = ledger.aggregate(rows, lambda r: r.get("session") or "?")
-        buckets.sort(key=lambda b: b.get("first_ts") or "", reverse=True)
-        columns = [("SESSION", "<", lambda b: b["key"][:8], None),
-                   ("STARTED", "<", started, None),
-                   ("OPENED WITH", "<", lambda b: label_of(b, TITLE_WIDTH), None),
-                   ] + NUMERIC_COLS
-        subtitle = f"{len(buckets)} sessions"
-        if scope:
-            subtitle += f", {scope}"
-    elif mode == "models":
-        buckets = ledger.aggregate(rows, lambda r: short_model(r.get("model", "?")))
-        buckets.sort(key=lambda b: -b["cost"])
-        columns = [("MODEL", "<", lambda b: b["key"], None)] + NUMERIC_COLS
-        subtitle = scope
-    else:
-        buckets = ledger.aggregate(rows, lambda r: ledger.local_day(r.get("ts")))
-        buckets.sort(key=lambda b: b["key"])
-        columns = [("DATE", "<", lambda b: b["key"], None)] + NUMERIC_COLS
-        days = [b["key"] for b in buckets if b["key"] != "unknown"]
-        subtitle = scope or (f"{min(days)} → {max(days)}" if days else "")
-
-    tasks = len({(r.get("session"), r.get("turn")) for r in rows})
     if imported:
         print(f"Imported {imported} earlier session(s) from transcripts on disk.")
         print()
-    print(f"Project: {project}    {tasks} tasks    {subtitle}")
+    print(f"Project: {project}    {view.tasks} tasks    {view.subtitle}")
     print()
-    print(render(columns, buckets, {"TASKS": tasks}))
+    if budget and len(table) > budget:
+        print(summary_only(view))
+        print()
+        print(budget_notice(view, table))
+        return 0
+    print(table)
     print()
     print("Estimated from published API rates; subscription plans are not billed per token.")
-    if hint:
-        print(hint)
+    if view.hint:
+        print(view.hint)
     return 0
 
 
