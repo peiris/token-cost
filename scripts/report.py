@@ -10,6 +10,7 @@ see budget_notice for why a report ever declines to draw itself.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -77,23 +78,63 @@ def budget_notice(view, table: str) -> str:
     ])
 
 
-def launch_block() -> str:
-    """What `/token-cost ui` prints: how to start the terminal UI."""
-    tui = PLUGIN_ROOT / "scripts" / "tui.py"
-    shim = PLUGIN_ROOT / "bin" / "token-cost"
+def ui_command() -> str:
+    """How to start the UI on this machine, preferring the short form."""
+    import install_shim
+    directory = install_shim.target_dir()
+    shim = directory / "token-cost"
+    if shim.is_file() and install_shim.on_path(directory):
+        return "token-cost"
+    return f"python3 {PLUGIN_ROOT / 'scripts' / 'tui.py'}"
+
+
+def open_window(command: str) -> str | None:
+    """Open the UI in a new terminal window. Returns the app used, or None.
+
+    A slash command has no terminal to hand a full-screen app, but the
+    desktop does. Better to open one than to print a command and make
+    someone else do the work.
+    """
+    import shutil
+    import subprocess
+    if sys.platform != "darwin" or not shutil.which("osascript"):
+        return None
+    app = "iTerm" if os.environ.get("TERM_PROGRAM") == "iTerm.app" else "Terminal"
+    escaped = command.replace("\\", "\\\\").replace('"', '\\"')
+    script = (f'tell application "{app}" to do script "{escaped}"\n'
+              f'tell application "{app}" to activate')
+    try:
+        done = subprocess.run(["osascript", "-e", script],
+                              capture_output=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return app if done.returncode == 0 else None
+
+
+def launch_block(cwd: str) -> str:
+    """What `/token-cost ui` prints: the UI, opened if that's possible."""
+    import shlex
+    command = ui_command()
+    # A new window opens in the home directory, which is somebody else's
+    # ledger. Name the project explicitly rather than inheriting a cwd.
+    opened = open_window(f"{command} --cwd {shlex.quote(cwd)}")
+    if opened:
+        return "\n".join([
+            f"Opened the token-cost UI in a new {opened} window.",
+            "",
+            "Tabs: Overview, Today, This Week, This Month, Tasks, Sessions.",
+            "←/→ or 1–6 to move, ↑/↓ to scroll, r to refresh, q to quit.",
+            "",
+            f"It's on your PATH too — run {command} from any terminal.",
+        ])
     return "\n".join([
         "token-cost UI — tabs for Overview, Today, This Week, This Month,",
         "Tasks and Sessions, with no limit on how much it can show.",
         "",
-        "It needs a real terminal, so run it yourself — a slash command's",
-        "output is captured text, which is no place for a full-screen app.",
+        "A full-screen app needs a terminal of its own, and this one",
+        "couldn't be opened for you. Run it from any terminal:",
         "",
-        f"    python3 {tui}",
-        "",
-        "Or install it once, and it stays current across plugin updates:",
-        "",
-        f"    ln -s {shim} ~/.local/bin/token-cost",
-        "    token-cost",
+        f"    {command}",
     ])
 
 
@@ -111,7 +152,7 @@ def main() -> int:
         del args[i:i + 2]
 
     if any(a.lower() in ("ui", "tui") for a in args):
-        print(launch_block())
+        print(launch_block(cwd))
         return 0
 
     mode, period = views.parse_args(args)

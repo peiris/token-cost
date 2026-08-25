@@ -78,7 +78,7 @@ inside your Claude Code data directory if you want the recorded history gone.
 | `/token-cost today`    | today only, broken down by model               |
 | `/token-cost week`     | the last 7 days, broken down by model          |
 | `/token-cost month`    | the last 30 days, broken down by model         |
-| `/token-cost ui`       | how to open the full-screen UI                 |
+| `/token-cost ui`       | opens the full-screen UI in a new window       |
 
 They all read the same ledger and end with a TOTAL row; they differ only in
 what a row means, and any of them can be narrowed to a period. The examples
@@ -329,22 +329,34 @@ scrollable, however many there are:
 ### Starting it
 
 ```
-/token-cost ui
-```
-
-prints the command to run. It has to be run from your own terminal: a slash
-command's shell output is captured text with no TTY attached, so a
-full-screen app can't live inside Claude Code. To make it a command you can
-type anywhere:
-
-```
-ln -s <plugin>/bin/token-cost ~/.local/bin/token-cost
 token-cost
 ```
 
-The shim resolves the newest installed copy each time it runs rather than the
-one it happens to sit next to, so plugin updates don't leave the symlink
-pointing at a stale version.
+That's it — there is no install step. The plugin puts the command on your
+PATH when a session starts, and keeps it there.
+
+`/token-cost ui` opens the UI for you in a new terminal window, pointed at
+the project you're working in. A slash command can't host a full-screen app
+itself — its shell output is captured text with no TTY attached — but it can
+open a window that can. Where that isn't possible (not macOS, no `osascript`),
+it prints the one command to run instead of doing nothing.
+
+<details>
+<summary>What gets installed, and where</summary>
+
+A copy of [`bin/token-cost`](bin/token-cost) is written to `~/.local/bin`
+(or `$XDG_BIN_HOME`) by a `SessionStart` hook. It is a copy rather than a
+symlink on purpose: Claude Code caches each plugin version in its own
+directory, so a symlink would point into a directory that the next update
+replaces and eventually prunes. The copy resolves the newest installed
+plugin every time it runs, so it survives updates — including updates to
+itself, since the hook rewrites the file whenever the launcher changes.
+
+It never overwrites a `token-cost` it didn't write, the file says where it
+came from and that it's safe to delete, and `TOKEN_COST_NO_SHIM=1` turns the
+whole thing off.
+
+</details>
 
 It needs nothing beyond `python3` — the UI is stdlib `curses`. Box-drawing and
 colour are used when the locale supports them and ASCII stands in when it

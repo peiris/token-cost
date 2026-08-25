@@ -1,5 +1,5 @@
 {
-  "description": "Record per-task token usage into a private per-project ledger, and keep it in sync automatically",
+  "description": "Record per-task token usage into a private per-project ledger, keep it in sync automatically, and keep the token-cost command on the user's PATH",
   "hooks": {
     "Stop": [
       {
@@ -19,6 +19,11 @@
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/record.py\" --sync",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/install_shim.py\"",
+            "timeout": 10
           }
         ]
       }
