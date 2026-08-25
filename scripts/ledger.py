@@ -446,8 +446,10 @@ def _text_of(content) -> str:
 def condense(text: str, cap: int = PROMPT_CAP) -> str:
     """One line, no runs of whitespace, capped."""
     text = " ".join(text.split())
+    if cap <= 0:
+        return ""
     if len(text) > cap:
-        return text[:cap - 1].rstrip() + "\u2026"
+        return (text[:cap - 1].rstrip() + "\u2026") if cap > 1 else "\u2026"
     return text
 
 

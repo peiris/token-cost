@@ -9,7 +9,7 @@ renders that ledger as a visual overview.
 ```
 ╭──────────────────────────────────────────────────────────────────────────────────────╮
 │                                                                                      │
-│                   ▂▄▆█  Claude Token Cost v0.10.16  ·  token-cost                    │
+│                   ▂▄▆█  Claude Token Cost v0.10.17  ·  token-cost                    │
 │                                                                                      │
 ├──────────────────────────────────────────────────────────────────────────────────────┤
 │  ▌ Overview     Today     This Week     This Month     All Tasks     Sessions        │
@@ -302,12 +302,15 @@ figures gives up words first and whole columns after, in that order; it
 never gives up a row.
 
 `token-cost` opens the same ledger as a full-screen app, with tabs and no
-limit on how much it can show:
+limit on how much it can show. It holds its shape at any size: panels stack
+when the terminal narrows, rows shed their words and then their columns,
+and every box keeps its own four edges down to a window too small to be
+worth opening.
 
 ```
   ╭──────────────────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                      │
-  │                           ▂▄▆█  Claude Token Cost v0.10.16  ·  token-cost                            │
+  │                           ▂▄▆█  Claude Token Cost v0.10.17  ·  token-cost                            │
   │                                                                                                      │
   ├──────────────────────────────────────────────────────────────────────────────────────────────────────┤
   │  ▌ Overview     Today     This Week     This Month     All Tasks     Sessions                        │
@@ -315,17 +318,17 @@ limit on how much it can show:
 
   ╭─ Project ──────────────────────╮  ╭─ Models ─────────────────────────────────────────────────────────╮
   │                                │  │                                                                  │
-  │  89 Tasks                      │  │  opus-5 (1m)     39 Tasks               168.1M Tokens   $105.51  │
+  │  91 Tasks                      │  │  opus-5 (1m)     41 Tasks               179.9M Tokens   $113.61  │
   │  2026-08-24 → 2026-08-26       │  │  fable-5 (1m)    11 Tasks                42.3M Tokens    $58.38  │
-  │  280.8M Tokens                 │  │  fable-5         16 Tasks                21.0M Tokens    $43.40  │
-  │  $251.97                       │  │  opus-5          25 Tasks                46.4M Tokens    $42.07  │
+  │  292.6M Tokens                 │  │  fable-5         16 Tasks                21.0M Tokens    $43.40  │
+  │  $260.07                       │  │  opus-5          25 Tasks                46.4M Tokens    $42.07  │
   │                                │  │  sonnet-5         4 Tasks                 2.1M Tokens     $2.38  │
   ╰────────────────────────────────╯  │                                                                  │
                                       ╰──────────────────────────────────────────────────────────────────╯
 
   ╭─ Cost Per Day ───────────────────────────────────────────────────────────────────────────────────────╮
   │  08-25 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▏  224.2M   $204.03  │
-  │  08-26 ▕▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏   34.5M    $31.39  │
+  │  08-26 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏   46.2M    $39.49  │
   ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
   ╭─ Most Expensive Tasks ───────────────────────────────────────────────────────────────────────────────╮
@@ -352,7 +355,7 @@ scrollable, however many there are:
 ```
   ╭──────────────────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                      │
-  │                           ▂▄▆█  Claude Token Cost v0.10.16  ·  token-cost                            │
+  │                           ▂▄▆█  Claude Token Cost v0.10.17  ·  token-cost                            │
   │                                                                                                      │
   ├──────────────────────────────────────────────────────────────────────────────────────────────────────┤
   │    Overview     Today     This Week     This Month   ▌ All Tasks     Sessions                        │
@@ -363,7 +366,9 @@ scrollable, however many there are:
   │  │  Press / or click, then type to filter tasks                                                   │  │
   │  ╰────────────────────────────────────────────────────────────────────────────────────────────────╯  │
   │  TIME         TASK                         MODEL           INPUT  OUTPUT  CACHE R  CACHE W   EST. $  │
-  │  08-26 03:35  [image] bro the tty UI suc…  opus-5 +1         152   89.0k    11.4M   195.3k    $9.86  │
+  │  08-26 04:04  /goal sweet. now lets do t…  opus-5 (1m)        76   56.1k    10.3M    75.6k    $7.30  │
+  │  08-26 03:55  [image] bro the tty UI suc…  opus-5 (1m)         8    2.3k   901.8k     1.8k    $0.53  │
+  │  08-26 03:35  [image] bro the tty UI suc…  opus-5 +1         156   90.3k    11.8M   197.3k   $10.13  │
   │  08-26 00:44  yes implement, but dont co…  sonnet-5            4   22.3k   365.4k    30.5k    $0.63  │
   │  08-26 00:37  continue                     opus-5             16    3.5k     2.0M     3.7k    $1.15  │
   │  08-26 00:29  but claude code shows "Chu…  sonnet-5           10   33.3k   797.7k    30.8k    $0.85  │
@@ -373,10 +378,8 @@ scrollable, however many there are:
   │  08-26 00:06  continue                     opus-5              8    8.0k   286.2k    62.9k    $0.97  │
   │  08-26 00:05  continue                     opus-5 +1         194  116.4k    16.9M   226.5k   $13.62  │
   │  08-26 00:02  /goal I Need TUI to be 60f…  fable-5            10    4.7k   225.8k    55.8k    $1.58  │
-  │  08-26 00:00  Bro publish your work and …  fable-5            12    8.1k   440.4k    28.1k    $1.41  │
-  │  08-25 23:59  Bro publish your work and …  fable-5            18    2.0k   549.5k     4.3k    $0.74  │
   │  ──────────────────────────────────────────────────────────────────────────────────────────────────  │
-  │  TOTAL                                                      3.2k    1.4M   276.3M     3.2M  $251.97  │
+  │  TOTAL                                                      3.3k    1.4M   287.9M     3.3M  $260.07  │
   │                                                                                                      │
   ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯
   Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q/Esc Quit
@@ -547,7 +550,12 @@ its own border, no row dropped to make a table fit. What it can't say is
 whether the numbers are right; that's the verifier above.
 
 `dev/smoke_tui.py` drives the real UI under a pseudo-terminal — every tab,
-the mouse, the search input, sizes from a postage stamp to a wall.
+the mouse, the search input, sizes from a postage stamp to a wall. Then it
+reads the cells back out of curses at eight terminal sizes and checks the
+one property a full-screen layout has to hold whatever room it is given:
+every box that opens closes, and nothing paints over the edges in between.
+A label one column too long for its panel doesn't fall off the screen — it
+lands on that panel's border, and the frame stops reading as a frame.
 
 `dev/bench_tui.py` does the same for the UI, which has its own kind of
 correctness: a table you can't scroll smoothly is a table you don't read. It

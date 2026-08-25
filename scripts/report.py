@@ -245,13 +245,12 @@ def figure_row(left: str, tokens: str, cost: str, width: int,
                token_w: int, cost_w: int, gap: int) -> str:
     """One row: `left`, then the two figures hard against the right edge.
 
-    tui.draw_overview places both by column rather than by offset from the
-    text, so a figure never moves because the one beside it got shorter.
-    `gap` is the least air kept between the label and them.
+    The columns come from views.figure_slots, which is where the UI gets
+    them too, so a panel of a given width lays out identically in either.
     """
-    tail = f"{tokens:>{token_w}}   {cost:>{cost_w}}"
-    room = max(0, width - len(tail) - gap)
-    return f"{fit(left, room):<{room}}{' ' * gap}{tail}"
+    label_w, token_x, cost_x = views.figure_slots(width, token_w, cost_w, gap)
+    row = fit(left, label_w).ljust(token_x) + tokens.rjust(token_w)
+    return (row.ljust(cost_x) + cost.rjust(cost_w))[:width]
 
 
 def bar(value: float, peak: float, width: int):
@@ -285,15 +284,19 @@ def day_rows(days: list[dict], width: int) -> list[str]:
     counts = [ledger.fmt_tokens(views.total_tokens(b)) for b in days]
     cost_w = max(len(c) for c in costs)
     count_w = max(len(c) for c in counts)
-    # date, its space, the two edges and the air before the figures take
-    # thirteen cells together -- the same reservation tui.draw_overview makes.
-    room = max(6, width - 13 - cost_w - count_w)
+    label_w, _, _ = views.figure_slots(width, count_w, cost_w, GAP)
+    # The date, the space after it, and the two edges around the bar. What
+    # is left is the bar; a panel with no room for one shows the date and
+    # its figures, which is still the row.
+    room = max(0, label_w - 8)
     peak = max(b["cost"] for b in days) or 1.0
     rows = []
     for b, count, cost in zip(days, counts, costs):
         filled, rest = bar(b["cost"], peak, room)
-        rows.append(figure_row(f"{b['key'][5:]} ▕{filled}{rest}▏",
-                               count, cost, width, count_w, cost_w, GAP))
+        label = (f"{b['key'][5:]} ▕{filled}{rest}▏" if room
+                 else b["key"][5:])
+        rows.append(figure_row(label, count, cost, width, count_w, cost_w,
+                               GAP))
     return rows
 
 
@@ -303,12 +306,17 @@ def task_rows(tasks: list[dict], width: int) -> list[str]:
     counts = [ledger.fmt_tokens(views.total_tokens(b)) for b in tasks]
     cost_w = max(len(c) for c in costs)
     count_w = max(len(c) for c in counts)
-    room = max(10, width - cost_w - count_w - 6)
+    label_w, _, _ = views.figure_slots(width, count_w, cost_w,
+                                       views.FIGURE_GAP)
     return [
-        figure_row(views.label_of(b, room, views.UNKNOWN_LONG),
-                   count, cost, width, count_w, cost_w, 3)
+        figure_row(views.label_of(b, label_w, views.UNKNOWN_LONG),
+                   count, cost, width, count_w, cost_w, views.FIGURE_GAP)
         for b, count, cost in zip(tasks, counts, costs)
     ]
+
+
+# Punctuation that joins two items rather than starting one.
+SEPARATORS = ("·", "—", "–", "-", "→")
 
 
 def wrap(text: str, width: int) -> list[str]:
@@ -320,14 +328,51 @@ def wrap(text: str, width: int) -> list[str]:
     """
     if len(text) <= width:
         return [text] if text else []
-    lines, line = [], ""
+    # A separator belongs to the word in front of it. Broken on its own it
+    # starts the next line -- "· q quit", "— past the" -- which reads as the
+    # sentence beginning with punctuation rather than continuing.
+    words = []
     for word in text.split():
+        if words and word in SEPARATORS:
+            words[-1] += " " + word
+        else:
+            words.append(word)
+    lines, line = [], ""
+    for word in words:
         if line and len(line) + 1 + len(word) > width:
             lines.append(line)
             line = word
         else:
             line = f"{line} {word}" if line else word
     return lines + [line] if line else lines
+
+
+def pairs(rows: list[tuple[str, str]], width: int, indent: int = 2,
+          gap: int = 5) -> list[str]:
+    """Aligned label/description rows, wrapping under their own description.
+
+    A hanging indent rather than a hard break: these are lists of things you
+    can type set beside what they do, and a description that wraps back to
+    the left margin reads as another thing you can type. Where even that
+    doesn't fit, the label takes a line of its own rather than squeezing the
+    description into a column two words wide.
+    """
+    label_w = max(len(label) for label, _ in rows)
+    lead = indent + label_w + gap
+    if width - lead < 16:
+        out = []
+        for label, text in rows:
+            out.append(" " * indent + label)
+            out += [" " * (indent + 2) + line
+                    for line in wrap(text, max(8, width - indent - 2))]
+        return out
+    out = []
+    for label, text in rows:
+        wrapped = wrap(text, width - lead) or [""]
+        out.append(" " * indent + label.ljust(label_w) + " " * gap
+                   + wrapped[0])
+        out += [" " * lead + more for more in wrapped[1:]]
+    return out
 
 
 def overview(rows: list[dict], project: str, width: int = 0) -> str:
@@ -438,7 +483,7 @@ def summary_only(view, width: int = 0) -> str:
     return "\n".join([lines[0], lines[-2], lines[-1]])
 
 
-def budget_notice(view, table: str, unit: str = "rows",
+def budget_notice(view, table: str, width: int, unit: str = "rows",
                   subject: str = "table") -> str:
     """Why a long chat result isn't here, and where to read it instead.
 
@@ -448,14 +493,13 @@ def budget_notice(view, table: str, unit: str = "rows",
     long table, it produces no table. So say so, keep the totals -- which are
     the part that still fits -- and point at the UI, which has no ceiling.
     """
-    return "\n".join([
-        f"{len(view.buckets):,} {unit} is {len(table):,} characters — past the"
-        " ~30,000 a conversation",
-        f"can carry, so the {subject} would arrive as a file preview rather than rows.",
-        "",
-        "  token-cost                 the full list, scrollable",
-        "  /token-cost tasks week     the last 7 days, in chat",
-    ])
+    said = wrap(f"{len(view.buckets):,} {unit} is {len(table):,} characters —"
+                f" past the ~30,000 a conversation can carry, so the {subject}"
+                " would arrive as a file preview rather than rows.", width)
+    return "\n".join(said + [""] + pairs([
+        ("token-cost", "the full list, scrollable"),
+        ("/token-cost tasks week", "the last 7 days, in chat"),
+    ], width))
 
 
 def ui_command() -> str:
@@ -506,7 +550,7 @@ def open_window(command: str, title: str) -> str | None:
     return app if done.returncode == 0 else None
 
 
-def launch_block(cwd: str) -> str:
+def launch_block(cwd: str, width: int) -> str:
     """What `/token-cost ui` prints: the UI, opened if that's possible.
 
     Whatever this says gets read by someone whose data is now in another
@@ -519,26 +563,27 @@ def launch_block(cwd: str) -> str:
     # ledger. Name the project explicitly rather than inheriting a cwd.
     opened = open_window(f"{command} --cwd {shlex.quote(cwd)}",
                          f"token-cost · {project}")
+    tabs = " · ".join(label for label, _, _ in views.TABS)
     if opened:
-        return "\n".join([
-            f"A new {opened} window is now open with the token-cost UI for"
-            f" {project}.",
-            f"Switch to that window — your usage data is there, not here.",
-            "",
-            "  Tabs   Overview · Today · This Week · This Month · Tasks · Sessions",
-            "  Keys   ←/→ or 1-6 change tab · ↑/↓ scroll · r refresh · q quit",
-            "",
-            f"Reopen it any time by running {command} in any terminal.",
-        ])
-    return "\n".join([
-        f"The token-cost UI shows {project}'s usage across tabs for Overview,",
-        "Today, This Week, This Month, Tasks and Sessions.",
-        "",
-        "It needs a terminal window of its own, and one could not be opened",
-        "for you here. Run this in any terminal:",
-        "",
-        f"    {command}",
-    ])
+        return "\n".join(
+            wrap(f"A new {opened} window is now open with the token-cost UI"
+                 f" for {project}.", width)
+            + wrap("Switch to that window — your usage data is there, not"
+                   " here.", width)
+            + [""]
+            + pairs([("Tabs", tabs),
+                     ("Keys", "←/→ or 1-6 change tab · ↑/↓ scroll ·"
+                              " r refresh · q quit")], width, gap=3)
+            + [""]
+            + wrap(f"Reopen it any time by running {command} in any"
+                   " terminal.", width))
+    return "\n".join(
+        wrap(f"The token-cost UI shows {project}'s usage across tabs for"
+             f" {tabs}.", width)
+        + [""]
+        + wrap("It needs a terminal window of its own, and one could not be"
+               " opened for you here. Run this in any terminal:", width)
+        + ["", f"    {command}"])
 
 
 def ensure_command() -> None:
@@ -576,8 +621,12 @@ def main() -> int:
         width = int(args[i + 1])
         del args[i:i + 2]
 
+    # Resolved once, before anything prints: every line this command emits
+    # lands in the same pane and wraps in the same way when it overruns.
+    width = report_width(width)
+
     if any(a.lower() in ("ui", "tui") for a in args):
-        print(launch_block(cwd))
+        print(launch_block(cwd, width))
         return 0
 
     # No arguments means the same Overview the full-screen UI opens on.
@@ -600,57 +649,56 @@ def main() -> int:
     # Resolved, because a relative --cwd has no name of its own to show.
     project = Path(cwd).resolve().name
 
+    def say(text: str) -> None:
+        for line in wrap(text, width):
+            print(line)
+
     if not rows:
-        print(f"No token usage recorded yet for {project}.")
+        say(f"No token usage recorded yet for {project}.")
         print()
-        print("Usage is recorded automatically as tasks complete —"
-              " finish a task and run /token-cost again.")
+        say("Usage is recorded automatically as tasks complete —"
+            " finish a task and run /token-cost again.")
         return 0
 
     scope = ""
     if period:
         rows, scope = views.in_window(rows, period)
         if not rows:
-            print(f"No token usage recorded for {project} in that window ({scope}).")
+            say(f"No token usage recorded for {project} in that window"
+                f" ({scope}).")
             return 0
 
     view = views.build(rows, mode, scope)
-    # Every table gets the same width the overview draws into: the tables
-    # land in the same pane and wrap in the same way when they overrun it.
-    width = report_width(width)
     table = render(view, width)
 
     if imported:
-        print(f"Imported {imported} earlier session(s) from transcripts on disk.")
+        say(f"Imported {imported} earlier session(s) from transcripts on"
+            " disk.")
         print()
     if show_overview:
         output = overview(rows, project, width)
         if budget and len(output) > budget:
-            for line in wrap(f"Project: {project}    {view.tasks} tasks"
-                             f"    {view.subtitle}", width):
-                print(line)
+            say(f"Project: {project}    {view.tasks} tasks"
+                f"    {view.subtitle}")
             print()
             print(summary_only(view, width))
             print()
-            print(budget_notice(view, output, "days", "overview"))
+            print(budget_notice(view, output, width, "days", "overview"))
             return 0
         print(output)
         return 0
-    for line in wrap(f"Project: {project}    {view.tasks} tasks   "
-                     f" {view.subtitle}", width):
-        print(line)
+    say(f"Project: {project}    {view.tasks} tasks    {view.subtitle}")
     print()
     if budget and len(table) > budget:
         print(summary_only(view, width))
         print()
-        print(budget_notice(view, table))
+        print(budget_notice(view, table, width))
         return 0
     print(table)
     print()
-    for note in ("Estimated from published API rates; subscription plans are"
-                 " not billed per token.", view.hint):
-        for line in wrap(note, width):
-            print(line)
+    say("Estimated from published API rates; subscription plans are not"
+        " billed per token.")
+    say(view.hint)
     return 0
 
 

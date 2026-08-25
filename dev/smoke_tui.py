@@ -6,8 +6,10 @@ plugin can. So give it one: allocate a pty, run the app inside it, send the
 keys a person would, and read back what it paints.
 
 What this can prove: it starts, every tab draws its own content, scrolling and
-refresh don't crash it, it survives sizes from a postage stamp to a wall, and
-it exits cleanly. What it can't: whether the thing looks good.
+refresh don't crash it, it survives sizes from a postage stamp to a wall, it
+exits cleanly -- and that at every one of those sizes each box on screen keeps
+its own four edges, which is the difference between a layout that got smaller
+and one that came apart. What it can't: whether the thing looks good.
 
 Usage: python3 dev/smoke_tui.py [--cwd PATH] [--show TAB] [--rows N --cols N]
 """
@@ -584,6 +586,114 @@ def run_search(cwd: str) -> list:
     return problems
 
 
+# --------------------------------------------------------------------------
+# frames
+# --------------------------------------------------------------------------
+
+DUMP = Path(__file__).resolve().parent / "dump_frame.py"
+
+# Sizes to draw every tab at. A terminal narrower or shorter than the last of
+# these is one nothing legible fits in; between here and a wall, every panel
+# has to keep its own edges.
+FRAME_SIZES = ((44, 150), (34, 92), (30, 80), (24, 64), (20, 48), (16, 40),
+               (12, 30), (10, 24))
+
+OPEN, SHUT, DOWN, UP, TEE_L, TEE_R = "╭", "╮", "╰", "╯", "├", "┤"
+
+
+def frames(cwd: str, rows: int, cols: int, tab: int = 5):
+    """Every tab's cells at one terminal size, as curses itself holds them.
+
+    Read back out of curses rather than replayed from the byte stream: the
+    stream is what changed, and a toy emulator reassembling it gets erases
+    and implicit cursor moves wrong. instr() is what the terminal is
+    actually showing.
+    """
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.environ["TERM"] = "xterm-256color"
+        os.execv(sys.executable, [sys.executable, str(DUMP), "--cwd", cwd,
+                                  "--tab", str(tab), "--all"])
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
+    chunks, deadline = [], time.time() + 30
+    while time.time() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.1)
+        if not ready:
+            if os.waitpid(pid, os.WNOHANG)[0]:
+                break
+            continue
+        try:
+            data = os.read(fd, 65536)
+        except OSError:
+            break
+        if not data:
+            break
+        chunks.append(data)
+    try:
+        os.waitpid(pid, 0)
+    except OSError:
+        pass
+    os.close(fd)
+    text = b"".join(chunks).decode("utf-8", "replace").replace("\r", "")
+    return [block.strip("\n").split("\n")
+            for block in text.split("<<<FRAME>>>")[1:]]
+
+
+def broken_boxes(lines, rows: int, cols: int, where: str) -> list:
+    """Boxes on this frame that something drew over.
+
+    The one property a full-screen layout has to hold whatever size it is
+    given: every box that opens closes, and nothing paints over the edges in
+    between. A label one column too long doesn't fall off the screen -- it
+    lands on the border of the panel holding it, and the frame stops reading
+    as a frame. Checking the edges catches that wherever it comes from.
+    """
+    grid = [line.ljust(cols)[:cols] for line in lines]
+    grid += [" " * cols] * max(0, rows - len(grid))
+    found = []
+    for y, row in enumerate(grid):
+        for x, ch in enumerate(row):
+            if ch != OPEN:
+                continue
+            right = row.find(SHUT, x + 1)
+            if right < 0:
+                found.append(f"{where}: box at {y},{x} never closes\n"
+                             f"  |{row}|")
+                continue
+            bottom = next((r for r in range(y + 1, len(grid))
+                           if grid[r][x] in (DOWN, TEE_L)), None)
+            if bottom is None:
+                found.append(f"{where}: box at {y},{x} w{right - x + 1} has no"
+                             " bottom edge -- drawn past the last row")
+                continue
+            for r in range(y + 1, bottom):
+                if grid[r][x] != "│" or grid[r][right] != "│":
+                    found.append(f"{where}: box at {y},{x} w{right - x + 1}"
+                                 f" is painted over on row {r}\n"
+                                 f"  |{grid[r]}|")
+                    break
+            if grid[bottom][right] not in (UP, TEE_R):
+                found.append(f"{where}: box at {y},{x} w{right - x + 1} ends"
+                             f" on {grid[bottom][right]!r}\n"
+                             f"  |{grid[bottom]}|")
+    return found
+
+
+def run_frames(cwd: str) -> list:
+    problems = []
+    for rows, cols in FRAME_SIZES:
+        here = []
+        captured = frames(cwd, rows, cols)
+        if len(captured) != 6:
+            here.append(f"{rows}x{cols}: captured {len(captured)} frames,"
+                        " expected 6")
+        for tab, lines in enumerate(captured):
+            here += broken_boxes(lines, rows, cols, f"{rows}x{cols} tab{tab}")
+        print(f"frames {rows}x{cols}: {'FAIL' if here else 'ok'}")
+        problems += here
+    return problems
+
+
 def show(cwd: str, tab: int, rows: int, cols: int) -> None:
     """Print one frame, so a layout can be eyeballed from outside a terminal."""
     app = App(cwd, rows, cols)
@@ -628,6 +738,8 @@ def main() -> int:
         found = run_search(cwd)
         print(f"search: {'FAIL' if found else 'ok'}")
         problems += found
+
+    problems += run_frames(cwd)
 
     for p in problems:
         print("\n" + p)

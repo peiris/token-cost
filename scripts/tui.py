@@ -432,13 +432,25 @@ class Screen:
             # can fail, and losing one glyph beats losing the frame.
             pass
 
+    def put_in(self, y: int, x: int, text: str, limit: int,
+               attr: int = 0) -> None:
+        """Draw inside a box: never at or past `limit`.
+
+        put() clips at the edge of the terminal, which is the wrong edge for
+        anything drawn inside a frame. A label one column too long for its
+        panel doesn't run off the screen -- it paints over the panel's own
+        border, and the box it was sitting in stops looking like a box.
+        Everything drawn inside a frame goes through here.
+        """
+        self.put(y, x, fit(text, limit - x), attr)
+
 
 def centred(sc: Screen, y: int, x: int, width: int, parts) -> None:
-    """Place (text, attr) segments as one centred run."""
+    """Place (text, attr) segments as one centred run, inside `width`."""
     span = sum(len(text) for text, _ in parts)
     at = x + max(0, (width - span) // 2)
     for text, attr in parts:
-        sc.put(y, at, text, attr)
+        sc.put_in(y, at, text, x + width, attr)
         at += len(text)
 
 
@@ -616,9 +628,13 @@ def draw_row(sc: Screen, y: int, x: int, cells, widths, aligns, attr=0,
     for cell, w, align in zip(cells, widths, aligns):
         if x >= edge:
             return
-        text = fit(cell, min(w, edge - x))
-        put_label(sc, y, x, text.rjust(w) if align == ">" else text.ljust(w),
-                  attr)
+        # Padded to what is visible rather than to the column: a cell cut off
+        # by the border still has to stop at it, and ljust to the full width
+        # writes its own trailing spaces straight over the frame.
+        room = min(w, edge - x)
+        text = fit(cell, room)
+        put_label(sc, y, x,
+                  text.rjust(room) if align == ">" else text.ljust(room), attr)
         x += w + GAP
 
 
@@ -688,20 +704,30 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
     stacked = width < 68
     stats_w = width if stacked else max(30, width // 3)
     models_w = width if stacked else width - stats_w - 2
-    stats_h = box_for(4)              # the four facts below
+    # Every box on this tab is sized to the room actually left below it,
+    # footer row excluded. A box drawn past the last line doesn't scroll --
+    # it loses its bottom edge, and the footer lands inside it.
+    stats_h = min(box_for(4), max(0, sc.h - y - 1))   # the four facts below
     box_h = max(box_for(min(len(models), 5)), stats_h if not stacked else 0)
 
-    panel(sc, y, left, stats_w, stats_h, "Project")
-    bx, by, _, _ = inside(left, y, stats_w, stats_h)
-    sc.put(by, bx, f"{data.tasks:,} Tasks", accent | curses.A_BOLD)
-    sc.put(by + 1, bx, data.span, muted)
-    sc.put(by + 2, bx, f"{ledger.fmt_tokens(data.tokens)} Tokens")
-    sc.put(by + 3, bx, ledger.fmt_usd(data.cost, data.cost_known),
-           accent | curses.A_BOLD)
+    facts = ((f"{data.tasks:,} Tasks", accent | curses.A_BOLD),
+             (data.span, muted),
+             (f"{ledger.fmt_tokens(data.tokens)} Tokens", 0),
+             (ledger.fmt_usd(data.cost, data.cost_known),
+              accent | curses.A_BOLD))
+    if stats_h >= 3:
+        panel(sc, y, left, stats_w, stats_h, "Project")
+        bx, by, bw, bh = inside(left, y, stats_w, stats_h)
+        for i, (fact, attr) in enumerate(facts[:max(0, bh)]):
+            sc.put_in(by + i, bx, fact, bx + bw, attr)
 
     models_y = y + stats_h if stacked else y
     models_x = left if stacked else left + stats_w + 2
-    if sc.h - models_y > 3:
+    # Sized to the room that is actually left, footer row excluded. A box
+    # drawn past the last line doesn't scroll -- it loses its bottom edge,
+    # and the footer lands in the middle of the rows it was holding.
+    box_h = min(box_h, sc.h - models_y - 1)
+    if box_h >= 3:
         panel(sc, models_y, models_x, models_w, box_h, "Models")
         mx, my, mw, mh = inside(models_x, models_y, models_w, box_h)
         shown = models[:max(0, mh)]
@@ -713,21 +739,21 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
         # runs: report.model_rows asks the same question of the same place,
         # so the two panels agree down to the column.
         name_w, tallies, counts, costs = views.model_figures(shown, mw)
-        # Columns, not offsets from the text: a figure that moves because
-        # the one beside it got shorter is a figure you can't scan down.
         cost_w = max(len(c) for c in costs)
         count_w = max(len(c) for c in counts)
+        label_w, count_x, cost_x = views.figure_slots(mw, count_w, cost_w)
         for i, b in enumerate(shown):
-            sc.put(my + i, mx, f"{b['key']:<{name_w}}{tallies[i]}")
-            sc.put(my + i, mx + mw - cost_w - count_w - 3,
-                   counts[i].rjust(count_w), curses.color_pair(C_MUTED))
-            sc.put(my + i, mx + mw - cost_w, costs[i].rjust(cost_w),
-                   curses.A_BOLD)
+            sc.put_in(my + i, mx, f"{b['key']:<{name_w}}{tallies[i]}",
+                      mx + label_w)
+            sc.put_in(my + i, mx + count_x, counts[i].rjust(count_w),
+                      mx + mw, curses.color_pair(C_MUTED))
+            sc.put_in(my + i, mx + cost_x, costs[i].rjust(cost_w),
+                      mx + mw, curses.A_BOLD)
     y = (models_y + box_h + 1) if stacked else (y + max(stats_h, box_h) + 1)
 
     days = figures.days[-(max(3, sc.h - y - 12)):]
-    if days and y + 4 < sc.h:
-        chart_h = min(box_for(len(days)), sc.h - y - 8)
+    chart_h = min(box_for(len(days)), max(0, sc.h - y - 8))
+    if days and chart_h >= 3:
         panel(sc, y, left, width, chart_h, "Cost per day")
         cx, cy, cw, ch = inside(left, y, width, chart_h)
         peak = max(b["cost"] for b in days) or 1.0
@@ -742,23 +768,30 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
         counts = [ledger.fmt_tokens(views.total_tokens(b)) for b in shown]
         cost_w = max(len(c) for c in costs)
         count_w = max(len(c) for c in counts)
-        room = max(12, cw - 10 - cost_w - count_w - 3)
+        label_w, count_x, cost_x = views.figure_slots(cw, count_w, cost_w)
+        # The date, the space after it, and the two edges around the bar.
+        # Whatever is left is the bar; a panel with no room for one shows the
+        # date and its figures, which is still the row.
+        room = max(0, label_w - 8)
         for i, b in enumerate(shown):
             filled, rest = bar(b["cost"], peak, room)
-            sc.put(cy + i, cx, b["key"][5:], muted)
-            sc.put(cy + i, cx + 6, LEFT_EDGE, accent)
-            sc.put(cy + i, cx + 7, filled, accent)
-            sc.put(cy + i, cx + 7 + len(filled), rest, muted)
-            sc.put(cy + i, cx + 7 + room, RIGHT_EDGE, accent)
-            sc.put(cy + i, cx + cw - cost_w - count_w - 3,
-                   counts[i].rjust(count_w), muted)
-            sc.put(cy + i, cx + cw - cost_w, costs[i].rjust(cost_w),
-                   curses.A_BOLD)
+            sc.put_in(cy + i, cx, b["key"][5:], cx + label_w, muted)
+            if room:
+                sc.put_in(cy + i, cx + 6, LEFT_EDGE, cx + label_w, accent)
+                sc.put_in(cy + i, cx + 7, filled, cx + label_w, accent)
+                sc.put_in(cy + i, cx + 7 + len(filled), rest, cx + label_w,
+                          muted)
+                sc.put_in(cy + i, cx + 7 + room, RIGHT_EDGE, cx + label_w,
+                          accent)
+            sc.put_in(cy + i, cx + count_x, counts[i].rjust(count_w),
+                      cx + cw, muted)
+            sc.put_in(cy + i, cx + cost_x, costs[i].rjust(cost_w), cx + cw,
+                      curses.A_BOLD)
         y += chart_h + 1
 
     tasks = figures.tasks
-    if tasks and y + 4 < sc.h:
-        box_h = min(box_for(len(tasks)), sc.h - y - 2)
+    box_h = min(box_for(len(tasks)), max(0, sc.h - y - 2))
+    if tasks and box_h >= 3:
         panel(sc, y, left, width, box_h, "Most expensive tasks")
         tx, ty, tw, th = inside(left, y, width, box_h)
         shown = tasks[:max(0, th)]
@@ -770,14 +803,15 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
         counts = [ledger.fmt_tokens(views.total_tokens(b)) for b in shown]
         cost_w = max(len(c) for c in costs)
         count_w = max(len(c) for c in counts)
-        room = max(10, tw - cost_w - count_w - 6)
+        label_w, count_x, cost_x = views.figure_slots(tw, count_w, cost_w,
+                                                      views.FIGURE_GAP)
         for i, b in enumerate(shown):
             put_label(sc, ty + i, tx,
-                      views.label_of(b, room, views.UNKNOWN_LONG))
-            sc.put(ty + i, tx + tw - cost_w - count_w - 3,
-                   counts[i].rjust(count_w), curses.color_pair(C_MUTED))
-            sc.put(ty + i, tx + tw - cost_w, costs[i].rjust(cost_w),
-                   curses.A_BOLD)
+                      views.label_of(b, label_w, views.UNKNOWN_LONG))
+            sc.put_in(ty + i, tx + count_x, counts[i].rjust(count_w),
+                      tx + tw, curses.color_pair(C_MUTED))
+            sc.put_in(ty + i, tx + cost_x, costs[i].rjust(cost_w), tx + tw,
+                      curses.A_BOLD)
     return 0
 
 
@@ -807,27 +841,33 @@ def draw_sessions_summary(sc: Screen, view, top: int, left: int,
     if h >= 1:
         mid = f"{view.tasks / n:.1f} Tasks/session"
         tail = f"avg {ledger.fmt_usd(avg_cost, known)}/session"
-        sc.put(y, x, f"{n:,} Sessions", accent | curses.A_BOLD)
-        sc.put(y, x + w - len(tail), tail, curses.A_BOLD)
-        if w - len(tail) - 3 > 14 + len(mid):
-            sc.put(y, x + w - len(tail) - 3 - len(mid), mid, muted)
+        tail_x = max(0, w - len(tail))
+        sc.put_in(y, x, f"{n:,} Sessions", x + tail_x, accent | curses.A_BOLD)
+        sc.put_in(y, x + tail_x, tail, x + w, curses.A_BOLD)
+        if tail_x - 3 > 14 + len(mid):
+            sc.put_in(y, x + tail_x - 3 - len(mid), mid, x + tail_x, muted)
 
     # The two outliers, named like the table below names its rows: when
-    # they started and what they were opened with, figure hard right.
+    # they started and what they were opened with, figure hard right. Each
+    # field stops where the next one starts, so a long prompt runs out of
+    # room rather than over the figure or the panel's own border.
     figs = [ledger.fmt_usd(priciest["cost"], priciest["cost_known"]),
             f"{ledger.fmt_tokens(views.total_tokens(longest))} Tokens"]
     fig_w = max(len(f) for f in figs)
-    room = max(10, w - 9 - 12 - fig_w - 2)
+    fig_x = max(0, w - fig_w)
+    label_x = 9 + 12
+    room = max(0, fig_x - label_x - 2)
     for i, (tag, b, fig) in enumerate(
             (("Priciest", priciest, figs[0]), ("Longest", longest, figs[1]))):
         if 1 + i >= h:
             break
         row = y + 1 + i
-        sc.put(row, x, tag, accent)
-        sc.put(row, x + 9, views.started(b), muted)
-        put_label(sc, row, x + 9 + 12,
+        sc.put_in(row, x, tag, x + min(9, fig_x), accent)
+        sc.put_in(row, x + 9, views.started(b), x + max(9, min(label_x, fig_x)),
+                  muted)
+        put_label(sc, row, x + label_x,
                   views.label_of(b, room, views.UNKNOWN_LONG))
-        sc.put(row, x + w - len(fig), fig, curses.A_BOLD)
+        sc.put_in(row, x + w - len(fig), fig, x + w, curses.A_BOLD)
 
 
 def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int,
@@ -852,13 +892,14 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int,
             boxed = height >= 8
             used = draw_search_input(sc, search, tab, ny, nx, nw, boxed)
             message = f'No {SEARCHABLE[tab].lower()} match "{built.query}".'
-            sc.put(ny + used, nx, message, curses.color_pair(C_MUTED))
+            sc.put_in(ny + used, nx, message, nx + nw,
+                      curses.color_pair(C_MUTED))
         else:
             panel(sc, top, left, width, box_for(1), label)
-            nx, ny, _, _ = inside(left, top, width, box_for(1))
+            nx, ny, nw, _ = inside(left, top, width, box_for(1))
             message = caps(
                 f"Nothing recorded in this window ({built.scope}).")
-            sc.put(ny, nx, message, curses.color_pair(C_MUTED))
+            sc.put_in(ny, nx, message, nx + nw, curses.color_pair(C_MUTED))
         return 0, 0
 
     if summary is None:
@@ -980,8 +1021,9 @@ def draw_chrome(sc: Screen, data: Data, tab: int, search: Search) -> int:
 
     if sc.h < 20:
         # No room for frames: name the app, the project and the tabs.
-        sc.put(0, left, "token-cost", accent | curses.A_BOLD)
-        sc.put(0, max(left, sc.w - len(data.project) - 2), data.project, muted)
+        where = max(left, sc.w - len(data.project) - 2)
+        sc.put_in(0, left, "token-cost", where, accent | curses.A_BOLD)
+        sc.put_in(0, where, data.project, sc.w, muted)
         draw_nav(sc, tab, 1, left, width)
         sc.put(sc.h - 1, 2, fit(footer_for(tab, search), sc.w - 4), muted)
         return 3
@@ -1145,10 +1187,13 @@ def run(stdscr, cwd: str) -> None:
             sc.search_hit = None
             top = draw_chrome(sc, data, tab, search)
             if not data.rows:
-                sc.put(top, 2,
-                       f"No Token Usage Recorded Yet For {data.project}.")
-                sc.put(top + 2, 2, "Finish a Task and Press r.",
-                       curses.color_pair(C_MUTED))
+                # The same two-column margin the chrome keeps, so a long
+                # project name is cut where every other line ends.
+                sc.put_in(top, 2,
+                          f"No Token Usage Recorded Yet For {data.project}.",
+                          sc.w - 2)
+                sc.put_in(top + 2, 2, "Finish a Task and Press r.", sc.w - 2,
+                          curses.color_pair(C_MUTED))
                 capacity = total = 0
             else:
                 capacity, total = draw_tab(sc, data, tab, top, offset, search)

@@ -350,6 +350,31 @@ def total_tokens(bucket: dict) -> int:
 MODEL_WIDTH = 14
 
 
+# The air between the two right-hand figures on an overview row. Wide enough
+# that a token count and a dollar figure read as two columns rather than one
+# number, and the same in both frontends.
+FIGURE_GAP = 3
+
+
+def figure_slots(width: int, token_w: int, cost_w: int, gap: int = GAP):
+    """Where a row's two right-hand figures sit, and what is left over.
+
+    (label width, token column, cost column), all counted from the start of
+    the row. Placed by column from the right edge rather than by offset from
+    the text: a figure that moves because the one beside it got shorter is a
+    figure you can't scan down. `gap` is the least air kept between the label
+    and the first figure, and the label takes whatever remains -- which on a
+    panel squeezed hard enough is nothing at all, which is the honest answer.
+
+    Both frontends lay the overview out through here, so a panel of a given
+    width holds the same thing whichever one drew it, and neither can size a
+    label past its own border.
+    """
+    cost_x = max(0, width - cost_w)
+    token_x = max(0, cost_x - FIGURE_GAP - token_w)
+    return max(0, token_x - gap), token_x, cost_x
+
+
 def model_figures(models: list, width: int):
     """How a Models panel `width` columns wide lays its rows out.
 
