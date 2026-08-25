@@ -531,7 +531,13 @@ def run(stdscr, cwd: str) -> None:
             continue
         stdscr.refresh()
 
-        key = stdscr.getch()
+        try:
+            key = stdscr.getch()
+        except KeyboardInterrupt:
+            # Ctrl+C is how plenty of people close a full-screen app. Quit
+            # the way q does, rather than unwinding a traceback over a
+            # terminal that curses is still holding.
+            return
         page = max(1, capacity - 1)
         # Not Esc: it is the first byte of every arrow-key sequence, so
         # binding it to quit means a right-arrow can close the app whenever
@@ -570,7 +576,10 @@ def main() -> int:
         print("token-cost: the UI needs a terminal. Run it from your shell,"
               " or use /token-cost for the plain table.", file=sys.stderr)
         return 1
-    curses.wrapper(run, cwd)
+    try:
+        curses.wrapper(run, cwd)
+    except KeyboardInterrupt:
+        pass  # interrupted somewhere other than the keyboard read
     return 0
 
 

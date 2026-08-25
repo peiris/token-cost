@@ -60,6 +60,10 @@ STEPS = [
     (b"1", "Cost per day", "Overview"),
 ]
 
+# Ctrl+C. Sent instead of `q` in one pass, because a full-screen app that
+# prints a traceback over the terminal it was holding is a bad way to leave.
+INTERRUPT = b"\x03"
+
 
 class App:
     """The TUI running in a pty."""
@@ -270,6 +274,19 @@ def run_size(cwd: str, rows: int, cols: int, empty=False) -> list:
         problems.append(f"{rows}x{cols}: exited {status}, expected 0")
     if found := broke(app.buffer):
         problems.append(f"{rows}x{cols}: crashed\n{found}")
+
+    # And again, leaving by Ctrl+C rather than by q.
+    app = App(cwd, rows, cols)
+    if app.wait_for("token-cost"):
+        app.send(INTERRUPT)
+        time.sleep(0.6)
+        status = app.close()
+        if status != 0:
+            problems.append(f"{rows}x{cols}: Ctrl+C exited {status}, expected 0")
+        if found := broke(app.buffer):
+            problems.append(f"{rows}x{cols}: Ctrl+C left a traceback\n{found}")
+    else:
+        app.close()
     return problems
 
 
