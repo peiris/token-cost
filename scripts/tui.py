@@ -606,18 +606,18 @@ def draw_search_input(sc: Screen, search: Search, tab: int, y: int, x: int,
                       width: int, boxed: bool = False) -> int:
     """A persistent search input inside a task or session table."""
     muted = curses.color_pair(C_MUTED)
-    label = "SEARCH"
-    field_x = x + len(label) + GAP
-    field_w = max(0, width - len(label) - GAP)
-    inner_w = max(0, field_w - 2)
+    padding = 2
+    field_x = x + padding
+    field_w = max(0, width - padding * 2)
+    inner_w = max(0, field_w - 2 - padding * 2)
+    text_x = field_x + 1 + padding
     query = search.query(tab)
     row = y + 1 if boxed else y
 
-    # Keep the label and the field chrome quiet so the active query is the
-    # thing that draws the eye. The input is a real bounded control, rather
-    # than a prompt followed by the table's divider rule.
-    sc.put(row, x, label, muted | curses.A_BOLD)
-    sc.search_hit = (tab, y, x, width, 3 if boxed else 1)
+    # Keep the field chrome quiet so the active query is the thing that draws
+    # the eye. Extra space outside and inside the border keeps it from
+    # touching the table frame or looking like another column.
+    sc.search_hit = (tab, y, field_x, field_w, 3 if boxed else 1)
     if boxed:
         sc.put(y, field_x, CORNERS[0] + RULE * max(0, field_w - 2)
                + CORNERS[1], muted)
@@ -628,20 +628,20 @@ def draw_search_input(sc: Screen, search: Search, tab: int, y: int, x: int,
         if len(value) > inner_w:
             value = (ELLIPSIS + value[-(inner_w - 1):]
                      if inner_w > 1 else ELLIPSIS[:inner_w])
-        sc.put(row, field_x + 1, value, curses.A_BOLD)
+        sc.put(row, text_x, value, curses.A_BOLD)
         if not query:
-            sc.put(row, field_x + 3, fit("Type a name to filter", inner_w - 2),
+            sc.put(row, text_x + 2, fit("Type a name to filter", inner_w - 2),
                    muted)
     elif query:
         shown = fit(query, inner_w)
-        sc.put(row, field_x + 1, shown, curses.A_BOLD)
-        hint_x = field_x + len(shown) + 3
+        sc.put(row, text_x, shown, curses.A_BOLD)
+        hint_x = text_x + len(shown) + 2
         if hint_x + len("Esc clears") <= field_x + inner_w:
             sc.put(row, hint_x, "Esc clears", muted)
     else:
         noun = SEARCHABLE[tab].lower()
         placeholder = f"Press / or click, then type to filter {noun}"
-        sc.put(row, field_x + 1, fit(placeholder, inner_w), muted)
+        sc.put(row, text_x, fit(placeholder, inner_w), muted)
     if not boxed:
         sc.put(row, field_x, LEFT_EDGE, muted)
         sc.put(row, field_x + field_w - 1, RIGHT_EDGE, muted)
