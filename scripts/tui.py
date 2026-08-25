@@ -79,7 +79,7 @@ if UNICODE:
     MARKER = "▌"           # the bar down the left of the selected tab
     SEP, ELLIPSIS = "│", "…"
     LEFT_ARROW, RIGHT_ARROW = "‹", "›"
-    KEYS = "←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit"
+    KEYS = "←/→ Tabs · ↑/↓ Scroll · r Refresh · q/Esc Quit"
 else:
     BAR, CAP = "=", "-"
     TRACK = "."
@@ -93,7 +93,7 @@ else:
     MARKER = "|"
     SEP, ELLIPSIS = "|", "~"
     LEFT_ARROW, RIGHT_ARROW = "<", ">"
-    KEYS = "Left/Right Tabs - Up/Down Scroll - r Refresh - q Quit"
+    KEYS = "Left/Right Tabs - Up/Down Scroll - r Refresh - q/Esc Quit"
 
 # Colour pairs
 C_ACCENT, C_MUTED, C_HEAD, C_TOTAL = 1, 2, 3, 4
@@ -773,11 +773,22 @@ def run(stdscr, cwd: str) -> None:
             # terminal that curses is still holding.
             return
         page = max(1, capacity - 1)
-        # Not Esc: it is the first byte of every arrow-key sequence, so
-        # binding it to quit means a right-arrow can close the app whenever
-        # the rest of the sequence lands a moment late.
         if key in (ord("q"), ord("Q")):
             return
+        elif key == 27:
+            # Esc quits -- but 27 is also the first byte of every arrow and
+            # function key, and curses hands it over bare whenever the rest
+            # of the sequence isn't in its keymap. The tell is what follows:
+            # a sequence's remaining bytes are already waiting, a real Esc
+            # is followed by silence. So peek without blocking, and swallow
+            # the sequence rather than quit over an exotic arrow key.
+            stdscr.nodelay(True)
+            follower = stdscr.getch()
+            while stdscr.getch() != -1:
+                pass
+            stdscr.nodelay(False)
+            if follower == -1:
+                return
         elif key in (curses.KEY_RIGHT, ord("\t"), ord("l")):
             tab, offset = (tab + 1) % len(TABS), 0
         elif key in (curses.KEY_LEFT, curses.KEY_BTAB, ord("h")):
