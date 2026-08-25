@@ -520,16 +520,16 @@ def run_compact_mouse(cwd: str) -> list:
 def run_search(cwd: str) -> list:
     """Search both named tables, edit a query, cancel it, and clear it."""
     problems = []
-    app = App(cwd, 40, 140)
-    if not app.wait_for(TABS_FIRST):
-        app.close()
-        return ["search: never drew a first frame"]
-
     for key, mode, noun in ((b"5", "tasks", "Tasks"),
                             (b"6", "sessions", "Sessions")):
         case = filter_case(cwd, mode)
         if case is None:
             problems.append(f"search: no usable {mode} fixture")
+            continue
+        app = App(cwd, 40, 140)
+        if not app.wait_for(TABS_FIRST):
+            app.close()
+            problems.append(f"search: {mode} never drew a first frame")
             continue
         query, matches, total = case
         typed = query.swapcase()
@@ -537,25 +537,26 @@ def run_search(cwd: str) -> list:
         unfiltered = "Every Task" if mode == "tasks" else f"{total} Sessions"
 
         app.send(key)
-        app.read(0.3)
-        if ("SEARCH" not in app.screen()
-                or "Press / or click" not in app.screen()):
+        if not app.wait_for("Press / or click"):
             problems.append(f"search: {mode} input is not visible in the table")
 
         if mode == "tasks":
             field = text_position(app, "Press / or click")
             if field is None:
                 problems.append("search: could not locate task search input")
+                app.close()
                 continue
             app.send(sgr_click(*field))
             if not app.wait_for("Enter Apply"):
                 problems.append("search: clicking task input did not focus it")
+                app.close()
                 continue
             app.send(typed.encode("ascii"))
         else:
             app.send(b"/" + typed.encode("ascii"))
         if not app.wait_for(title):
             problems.append(f"search: {mode} query did not narrow to {title}")
+            app.close()
             continue
         if f"Search: {typed}" not in app.screen():
             problems.append(f"search: {mode} input was not visible")
@@ -575,13 +576,11 @@ def run_search(cwd: str) -> list:
             problems.append(f"search: {mode} Esc did not clear the filter")
         if not app.alive():
             problems.append(f"search: {mode} filtering quit the app")
-            break
-
-    status = app.close()
-    if status != 0:
-        problems.append(f"search: exited {status}, expected 0")
-    if found := broke(app.buffer):
-        problems.append(f"search: crashed\n{found}")
+        status = app.close()
+        if status != 0:
+            problems.append(f"search: {mode} exited {status}, expected 0")
+        if found := broke(app.buffer):
+            problems.append(f"search: {mode} crashed\n{found}")
     return problems
 
 
