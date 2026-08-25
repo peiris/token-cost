@@ -164,7 +164,7 @@ def load_pricing() -> dict:
     global _PRICING_CACHE
     if _PRICING_CACHE is None:
         with open(Path(__file__).resolve().parent / "pricing.json", encoding="utf-8") as fh:
-            _PRICING_CACHE = json.load(fh)["models"]
+            _PRICING_CACHE = json.load(fh)
     return _PRICING_CACHE
 
 
@@ -173,7 +173,7 @@ def rates_for(model: str):
     undated ones (claude-haiku-4-5) resolve to the same entry. Returns None
     for models we have no price for, so the caller can show '?' rather than
     pretending the usage was free."""
-    pricing = load_pricing()
+    pricing = load_pricing()["models"]
     best = None
     for key in pricing:
         if model.startswith(key) and (best is None or len(key) > len(best)):
@@ -181,11 +181,121 @@ def rates_for(model: str):
     return pricing[best] if best else None
 
 
-def cost_of(model: str, tokens: dict) -> float | None:
-    rates = rates_for(model)
+def input_total(tokens: dict) -> int:
+    """Every token a request sent. This is what a context tier is measured
+    against -- fresh input, cache reads and cache writes alike all occupy the
+    window, and the usage block counts each of them."""
+    return sum(tokens.get(k, 0) for k in TOKEN_KEYS if k != "output")
+
+
+def bill_of(model: str, usage: dict, tokens: dict) -> dict:
+    """The rate modifiers in force for one request.
+
+    A model id is not the whole price. The same `claude-opus-5` request costs
+    twice as much under /fast, and 10% more with inference pinned to the US.
+    None of that shows up in the model name -- but all of it is reported in
+    the request's own usage block, so it is read rather than inferred. A
+    context tier is the same shape: which tier a request lands in follows
+    from the tokens it actually sent, which that block already counts.
+
+    Returns only what differs from standard, so an ordinary request carries
+    nothing extra in the ledger and prices exactly as it always did.
+    """
+    bill = {}
+
+    if usage.get("speed") == "fast":
+        bill["speed"] = "fast"
+
+    # 'not_available' is what a request reports when it never had the choice.
+    geo = usage.get("inference_geo")
+    if geo and geo not in ("global", "not_available"):
+        bill["geo"] = geo
+
+    tier = usage.get("service_tier")
+    if tier and tier != "standard":
+        bill["tier"] = tier
+
+    window = (rates_for(model) or {}).get("long_context")
+    if window and input_total(tokens) > window["threshold"]:
+        bill["long_context"] = True
+
+    return bill
+
+
+def bill_key(bill: dict | None) -> str:
+    """A stable key for one set of modifiers, so requests billed differently
+    never land in the same row."""
+    return json.dumps(bill or {}, sort_keys=True, separators=(",", ":"))
+
+
+def effective_rates(model: str, bill: dict | None = None):
+    """The five per-token rates one request was actually billed at.
+
+    Variants replace the base rates; modifiers scale whatever the variant
+    left. That order is Anthropic's own: fast mode and long context each set
+    a rate -- and fast mode sets it across the full context window, so it
+    wins over a tier -- while data residency multiplies whatever applied.
+
+    Any modifier we have no number for returns None, which surfaces as '?'.
+    A modifier exists precisely because it changes the price, so guessing it
+    away as standard would be the one answer certain to be wrong.
+    """
+    entry = rates_for(model)
+    if entry is None:
+        return None
+    bill = bill or {}
+
+    rates = entry
+    if bill.get("long_context"):
+        rates = entry.get("long_context")
+        if rates is None:
+            return None
+    if bill.get("speed"):
+        rates = (entry.get("speed") or {}).get(bill["speed"])
+        if rates is None:
+            return None
+
+    scale = 1.0
+    modifiers = load_pricing().get("modifiers", {})
+    for field, key in (("inference_geo", "geo"), ("service_tier", "tier")):
+        value = bill.get(key)
+        if value is None:
+            continue
+        factor = modifiers.get(field, {}).get(value)
+        if factor is None:
+            return None
+        scale *= factor
+
+    return {k: rates[k] * scale for k in TOKEN_KEYS}
+
+
+def cost_of(model: str, tokens: dict, bill: dict | None = None) -> float | None:
+    rates = effective_rates(model, bill)
     if rates is None:
         return None
     return sum(tokens.get(k, 0) * rates[k] for k in TOKEN_KEYS) / 1_000_000
+
+
+def bill_note(bill: dict | None) -> str:
+    """How a row's pricing differed from standard, in a word or two.
+
+    Without this a fast-mode turn reads as the same model at twice the price,
+    which looks like the model got expensive rather than like a setting did.
+    """
+    if not bill:
+        return ""
+    marks = [bill[k] for k in ("speed", "geo", "tier") if bill.get(k)]
+    if bill.get("long_context"):
+        marks.append("long")
+    return " ".join(marks)
+
+
+def model_label(row: dict) -> str:
+    """What to call a row's model in a report: the id, plus any note about
+    how it was billed."""
+    model = row.get("model") or "?"
+    note = bill_note(row.get("bill"))
+    return f"{model} ({note})" if note else model
 
 
 # --------------------------------------------------------------------------
@@ -211,7 +321,7 @@ def usage_of(entry: dict) -> dict | None:
         return None
     u = message.get("usage") or {}
     creation = u.get("cache_creation") or {}
-    return {
+    rec = {
         "request_id": request_id,
         "model": model,
         "kind": "subagent" if entry.get("isSidechain") else "main",
@@ -222,6 +332,8 @@ def usage_of(entry: dict) -> dict | None:
         "cache_write_5m": creation.get("ephemeral_5m_input_tokens") or 0,
         "cache_write_1h": creation.get("ephemeral_1h_input_tokens") or 0,
     }
+    rec["bill"] = bill_of(model, u, rec)
+    return rec
 
 
 # Blocks the client wraps around a prompt that aren't part of what the user
@@ -425,14 +537,20 @@ def pick_prompt(prompts: list, fallback: str = "") -> str:
 
 
 def group_records(records: list[dict]) -> list[dict]:
-    """Collapse a turn's requests into one row per (model, kind)."""
+    """Collapse a turn's requests into one row per (model, kind, billing).
+
+    Billing joins the key because a turn can change price mid-flight -- half
+    of it under /fast, half not -- and a row is only priceable if every
+    request in it was billed the same way.
+    """
     groups: dict[tuple, dict] = {}
     for rec in records:
-        key = (rec["model"], rec["kind"])
+        bill = rec.get("bill") or {}
+        key = (rec["model"], rec["kind"], bill_key(bill))
         row = groups.get(key)
         if row is None:
             row = groups[key] = {
-                "model": rec["model"], "kind": rec["kind"],
+                "model": rec["model"], "kind": rec["kind"], "bill": bill,
                 "ts": rec["ts"], "reqs": 0,
                 **{k: 0 for k in TOKEN_KEYS},
             }
@@ -551,8 +669,8 @@ def aggregate(rows: list[dict], key_fn) -> list[dict]:
             b["cost_known"] = False
         else:
             b["cost"] += row["cost_usd"]
-        model = row.get("model")
-        if model:
+        model = model_label(row)
+        if row.get("model"):
             # Ranked by spend, so the model a bucket mostly ran on leads --
             # a one-request haiku subagent shouldn't headline an opus task.
             b["models"][model] = b["models"].get(model, 0.0) + (row.get("cost_usd") or 0.0)

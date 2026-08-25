@@ -120,6 +120,8 @@ class Data:
         self.rows = ledger.read_ledger(ledger.ledger_path(self.cwd))
         self.tasks = views.count_tasks(self.rows)
         self.cost = sum(r.get("cost_usd") or 0.0 for r in self.rows)
+        self.tokens = sum(sum(r.get(k, 0) for k in ledger.TOKEN_KEYS)
+                          for r in self.rows)
         self.cost_known = all(r.get("cost_usd") is not None for r in self.rows)
         days = sorted({ledger.local_day(r.get("ts")) for r in self.rows}
                       - {"unknown"})
@@ -404,14 +406,15 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
     stacked = width < 62
     stats_w = width if stacked else max(30, width // 3)
     models_w = width if stacked else width - stats_w - 2
-    stats_h = box_for(3)              # the three facts below
+    stats_h = box_for(4)              # the four facts below
     box_h = max(box_for(min(len(models), 5)), stats_h if not stacked else 0)
 
     panel(sc, y, left, stats_w, stats_h, "Project")
     bx, by, _, _ = inside(left, y, stats_w, stats_h)
     sc.put(by, bx, f"{data.tasks:,} Tasks", accent | curses.A_BOLD)
     sc.put(by + 1, bx, data.span, muted)
-    sc.put(by + 2, bx, ledger.fmt_usd(data.cost, data.cost_known),
+    sc.put(by + 2, bx, f"{ledger.fmt_tokens(data.tokens)} Tokens")
+    sc.put(by + 3, bx, ledger.fmt_usd(data.cost, data.cost_known),
            accent | curses.A_BOLD)
 
     models_y = y + stats_h if stacked else y
@@ -419,10 +422,24 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
     if sc.h - models_y > 3:
         panel(sc, models_y, models_x, models_w, box_h, "Models")
         mx, my, mw, mh = inside(models_x, models_y, models_w, box_h)
-        for i, b in enumerate(models[:mh]):
-            cost = ledger.fmt_usd(b["cost"], b["cost_known"])
+        shown = models[:max(0, mh)]
+        # A panel squeezed to nothing draws nothing: max() over an empty
+        # column is a crash, and a header with no rows under it is a bug.
+        if not shown:
+            return 0
+        costs = [ledger.fmt_usd(b["cost"], b["cost_known"]) for b in shown]
+        counts = [f"{ledger.fmt_tokens(views.total_tokens(b))} Tokens"
+                  for b in shown]
+        # Columns, not offsets from the text: a figure that moves because
+        # the one beside it got shorter is a figure you can't scan down.
+        cost_w = max(len(c) for c in costs)
+        count_w = max(len(c) for c in counts)
+        for i, b in enumerate(shown):
             sc.put(my + i, mx, f"{b['key']:<14}{b['tasks']:>6} Tasks")
-            sc.put(my + i, mx + mw - len(cost), cost, curses.A_BOLD)
+            sc.put(my + i, mx + mw - cost_w - count_w - 3,
+                   counts[i].rjust(count_w), curses.color_pair(C_MUTED))
+            sc.put(my + i, mx + mw - cost_w, costs[i].rjust(cost_w),
+                   curses.A_BOLD)
     y = (models_y + box_h + 1) if stacked else (y + max(stats_h, box_h) + 1)
 
     days = [b for b in views.day_buckets(data.rows) if b["key"] != "unknown"]
@@ -434,16 +451,27 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
         peak = max(b["cost"] for b in days) or 1.0
         # Fills the panel: label, bar, then the figure hard against the right
         # edge, so the row reads left to right with nothing dangling.
-        room = max(12, cw - 19)
-        for i, b in enumerate(days[-ch:]):
+        shown = days[-ch:] if ch > 0 else []
+        # A panel squeezed to nothing draws nothing: max() over an empty
+        # column is a crash, and a header with no rows under it is a bug.
+        if not shown:
+            return 0
+        costs = [ledger.fmt_usd(b["cost"], b["cost_known"]) for b in shown]
+        counts = [ledger.fmt_tokens(views.total_tokens(b)) for b in shown]
+        cost_w = max(len(c) for c in costs)
+        count_w = max(len(c) for c in counts)
+        room = max(12, cw - 10 - cost_w - count_w - 3)
+        for i, b in enumerate(shown):
             filled, rest = bar(b["cost"], peak, room)
             sc.put(cy + i, cx, b["key"][5:], muted)
             sc.put(cy + i, cx + 6, LEFT_EDGE, accent)
             sc.put(cy + i, cx + 7, filled, accent)
             sc.put(cy + i, cx + 7 + len(filled), rest, muted)
             sc.put(cy + i, cx + 7 + room, RIGHT_EDGE, accent)
-            cost = ledger.fmt_usd(b["cost"], b["cost_known"])
-            sc.put(cy + i, cx + cw - len(cost), cost, curses.A_BOLD)
+            sc.put(cy + i, cx + cw - cost_w - count_w - 3,
+                   counts[i].rjust(count_w), muted)
+            sc.put(cy + i, cx + cw - cost_w, costs[i].rjust(cost_w),
+                   curses.A_BOLD)
         y += chart_h + 1
 
     tasks = sorted(views.task_buckets(data.rows), key=lambda b: -b["cost"])[:5]
@@ -451,12 +479,23 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
         box_h = min(box_for(len(tasks)), sc.h - y - 2)
         panel(sc, y, left, width, box_h, "Most expensive tasks")
         tx, ty, tw, th = inside(left, y, width, box_h)
-        for i, b in enumerate(tasks[:th]):
-            cost = ledger.fmt_usd(b["cost"], b["cost_known"])
+        shown = tasks[:max(0, th)]
+        # A panel squeezed to nothing draws nothing: max() over an empty
+        # column is a crash, and a header with no rows under it is a bug.
+        if not shown:
+            return 0
+        costs = [ledger.fmt_usd(b["cost"], b["cost_known"]) for b in shown]
+        counts = [ledger.fmt_tokens(views.total_tokens(b)) for b in shown]
+        cost_w = max(len(c) for c in costs)
+        count_w = max(len(c) for c in counts)
+        room = max(10, tw - cost_w - count_w - 6)
+        for i, b in enumerate(shown):
             put_label(sc, ty + i, tx,
-                      views.label_of(b, max(10, tw - len(cost) - 2),
-                                     views.UNKNOWN_LONG))
-            sc.put(ty + i, tx + tw - len(cost), cost, curses.A_BOLD)
+                      views.label_of(b, room, views.UNKNOWN_LONG))
+            sc.put(ty + i, tx + tw - cost_w - count_w - 3,
+                   counts[i].rjust(count_w), curses.color_pair(C_MUTED))
+            sc.put(ty + i, tx + tw - cost_w, costs[i].rjust(cost_w),
+                   curses.A_BOLD)
     return 0
 
 
@@ -480,29 +519,33 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
                curses.color_pair(C_MUTED))
         return 0, 0
 
-    # A period tab pairs the model split with the tasks behind it, so it
-    # answers "what did this cost" and "what was I doing" at once. The split
-    # is short and its length is known; the task list takes what is left.
-    task_view = None
+    # Every tab leads with the same summary: what this window cost, split by
+    # model. On a period tab the rows underneath are its tasks; on the task
+    # and session tabs they are the tab's own table. Either way the top of
+    # the screen answers "how much" before the detail explains "on what".
     if mode == "models":
-        candidate = views.build(rows, "tasks", scope, ledger.PROMPT_CAP)
-        if candidate.buckets and room >= len(view.buckets) + 12:
-            task_view = candidate
+        summary = view
+        main = views.build(rows, "tasks", scope, ledger.PROMPT_CAP,
+                           unknown=views.UNKNOWN_LONG)
+        main_title = f"{len(main.buckets)} Tasks"
+    else:
+        summary = views.build(rows, "models", scope, ledger.PROMPT_CAP)
+        main = view
+        main_title = view.subtitle
 
-    if task_view is None:
+    summary_title = summary.subtitle or "By Model"
+    split_h = box_for(len(summary.buckets) + 3)   # header, rows, rule, total
+
+    if not main.buckets or room < split_h + 8:
         shown = draw_boxed_table(sc, view, top, left, width, room, offset,
                                  view.subtitle)
         return shown, len(view.buckets)
 
-    # header, rows, rule, total -- sized through box_for so the box asks for
-    # the padding rather than fitting its contents exactly and being denied it.
-    split_h = box_for(len(view.buckets) + 3)
-    draw_boxed_table(sc, view, top, left, width, split_h, 0, view.subtitle)
+    draw_boxed_table(sc, summary, top, left, width, split_h, 0, summary_title)
     below = top + split_h + 1
-    shown = draw_boxed_table(sc, task_view, below, left, width,
-                             sc.h - below - 1, offset,
-                             f"{len(task_view.buckets)} tasks")
-    return shown, len(task_view.buckets)
+    shown = draw_boxed_table(sc, main, below, left, width,
+                             sc.h - below - 1, offset, main_title)
+    return shown, len(main.buckets)
 
 
 # --------------------------------------------------------------------------

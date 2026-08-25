@@ -34,7 +34,8 @@ def rows_for(records, session_id, turn, prompt=""):
     rows = []
     for group in ledger.group_records(records):
         tokens = {k: group[k] for k in ledger.TOKEN_KEYS}
-        rows.append({
+        bill = group.get("bill") or {}
+        row = {
             "ts": group["ts"],
             "session": session_id,
             "turn": turn,
@@ -42,9 +43,14 @@ def rows_for(records, session_id, turn, prompt=""):
             "model": group["model"],
             "kind": group["kind"],
             "reqs": group["reqs"],
-            "cost_usd": ledger.cost_of(group["model"], tokens),
+            "cost_usd": ledger.cost_of(group["model"], tokens, bill),
             **tokens,
-        })
+        }
+        # Only carried when the request was billed as something other than
+        # standard, so an ordinary ledger line stays exactly what it was.
+        if bill:
+            row["bill"] = bill
+        rows.append(row)
     return rows
 
 

@@ -272,7 +272,7 @@ show:
 ```
   ╭────────────────────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                        │
-  │                             ▂▄▆█  Claude Token Cost v0.8.9  ·  token-cost                              │
+  │                             ▂▄▆█  Claude Token Cost v0.9.0  ·  token-cost                              │
   │                                                                                                        │
   ├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
   │  ▌ Overview     Today     This Week     This Month     Tasks     Sessions                              │
@@ -280,22 +280,24 @@ show:
 
   ╭─ Project ───────────────────────╮  ╭─ Models ──────────────────────────────────────────────────────────╮
   │                                 │  │                                                                   │
-  │  16 Tasks                       │  │  opus-5            16 Tasks                               $15.85  │
-  │  2026-08-23 → 2026-08-25        │  │  haiku-4-5          3 Tasks                                $0.29  │
+  │  16 Tasks                       │  │  opus-5            16 Tasks                21.1M Tokens   $15.85  │
+  │  2026-08-23 → 2026-08-25        │  │  haiku-4-5          3 Tasks                 1.2M Tokens    $0.29  │
+  │  22.3M Tokens                   │  │                                                                   │
   │  $16.14                         │  │                                                                   │
   │                                 │  │                                                                   │
   ╰─────────────────────────────────╯  ╰───────────────────────────────────────────────────────────────────╯
 
   ╭─ Cost Per Day ─────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                        │
-  │  08-24 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏      $5.41  │
-  │  08-25 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏      $3.48  │
+  │  08-23 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▏  9.9M   $7.25  │
+  │  08-24 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏  7.5M   $5.41  │
+  │  08-25 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏  4.9M   $3.48  │
   │                                                                                                        │
   ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
   ╭─ Most Expensive Tasks ─────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                        │
-  │  Import history automatically on session start instead of asking                                $2.70  │
+  │  Import history automatically on session start instead of asking                         3.6M   $2.70  │
   │                                                                                                        │
   ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
@@ -312,7 +314,7 @@ scrollable, however many there are:
 ```
   ╭────────────────────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                        │
-  │                             ▂▄▆█  Claude Token Cost v0.8.9  ·  token-cost                              │
+  │                             ▂▄▆█  Claude Token Cost v0.9.0  ·  token-cost                              │
   │                                                                                                        │
   ├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
   │    Overview     Today     This Week     This Month   ▌ Tasks     Sessions                              │
@@ -327,6 +329,8 @@ scrollable, however many there are:
   │  08-25 09:23  Save the prompt that started each …  opus-5 +1     47   11.5k     3.4M    74.7k   $2.28  │
   │  08-24 13:31  Add update instructions to the REA…  opus-5        10    1.2k   427.4k     3.4k   $0.28  │
   │  08-24 13:06  Publish the plugin to the marketpl…  opus-5        25    5.4k     1.4M    15.7k   $1.02  │
+  │  08-24 10:05  Add a today view broken down by mo…  opus-5        20    4.6k     1.5M    17.6k   $1.02  │
+  │  08-24 09:33  /token-cost sessions                 opus-5         1     202    28.7k     5.2k   $0.07  │
   │  ────────────────────────────────────────────────────────────────────────────────────────────────────  │
   │  TOTAL                                                          393   81.4k    21.8M   474.4k  $16.14  │
   │                                                                                                        │
@@ -427,14 +431,30 @@ Rates live in `scripts/pricing.json` and are applied at write time, so old
 rows stay correct after prices change. A model with no entry records
 `cost_usd: null` and reports as `?` rather than silently counting as free.
 
+A model id is not the whole price. The same `claude-opus-5` request costs
+twice as much under `/fast`, and 10% more with inference pinned to the US —
+and neither shows up in the model name. Both are reported in the request's
+own `usage` block, so they are read off it rather than inferred: `usage.speed`,
+`usage.inference_geo`, and `usage.service_tier` each select the rate the
+request was really billed at. A turn that changed mode mid-flight splits into
+one row per mode, and a row priced as anything but standard carries a `bill`
+field and shows the reason next to the model — `opus-5 (fast)` — so a doubled
+rate never reads as a model that got expensive. A modifier with no known
+factor prices as `?`; a modifier exists because it changes the price, so
+guessing it away as standard is the one answer certain to be wrong.
+
 ## Limits
 
 - **Costs are estimates** computed from published API rates. On a subscription
   plan nothing is billed per token, so read the figure as "what this would
   have cost on the API".
-- **No long-context premium.** Transcripts record `claude-opus-5` with no 1M
-  marker, so the higher price tier for >200K-token inputs can't be detected.
-  Long-context-heavy projects read low.
+- **Long context is not a premium**, so there is nothing to miss: Claude 4.6
+  and later include the full 1M window at standard pricing — a 900k-token
+  request is billed at the same per-token rate as a 9k one. The Sonnet 4.5
+  beta that did charge more above 200K is retired. Should a tier ever return,
+  `pricing.json` takes a `long_context: {threshold, …}` block per model and
+  the recorder measures each request's own input against it — a data edit,
+  not a code change.
 - **Imported task counts are approximate** — turn boundaries are
   reconstructed from the transcript. Token and cost totals are exact.
 - **A session's own hooks load at startup**, so a plugin installed or updated

@@ -38,8 +38,14 @@ MODES = ("days", "tasks", "sessions", "models")
 # --------------------------------------------------------------------------
 
 def short_model(model: str) -> str:
-    """claude-haiku-4-5-20251001 -> haiku-4-5"""
-    return re.sub(r"-\d{8}$", "", re.sub(r"^claude-", "", model))
+    """claude-haiku-4-5-20251001 -> haiku-4-5
+
+    A billing note rides along untouched: 'claude-opus-5 (fast)' shortens to
+    'opus-5 (fast)', because dropping it would leave two rows on the same
+    model at different prices with nothing to tell them apart.
+    """
+    model, sep, note = model.partition(" (")
+    return re.sub(r"-\d{8}$", "", re.sub(r"^claude-", "", model)) + sep + note
 
 
 def models_cell(b: dict) -> str:
@@ -196,7 +202,7 @@ def task_buckets(rows: list) -> list:
 
 
 def model_buckets(rows: list) -> list:
-    buckets = ledger.aggregate(rows, lambda r: short_model(r.get("model", "?")))
+    buckets = ledger.aggregate(rows, lambda r: short_model(ledger.model_label(r)))
     buckets.sort(key=lambda b: -b["cost"])
     return buckets
 
@@ -211,6 +217,11 @@ def session_buckets(rows: list) -> list:
     buckets = ledger.aggregate(rows, lambda r: r.get("session") or "?")
     buckets.sort(key=lambda b: b.get("first_ts") or "", reverse=True)
     return buckets
+
+
+def total_tokens(bucket: dict) -> int:
+    """Every counter in one figure: what the model actually read and wrote."""
+    return sum(bucket.get(k, 0) for k in ledger.TOKEN_KEYS)
 
 
 def count_tasks(rows: list) -> int:
