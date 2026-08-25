@@ -326,7 +326,7 @@ def draw_table(sc: Screen, view, top: int, left: int, width: int, height: int,
 
     sc.put(rule_y, left, RULE * min(sum(widths) + GAP * (len(widths) - 1),
                                     width, sc.w - left),
-           curses.color_pair(C_MUTED))
+           curses.color_pair(C_ACCENT))
     draw_row(sc, rule_y + 1, left, total, widths, aligns,
              curses.color_pair(C_TOTAL) | curses.A_BOLD, limit)
     return body
@@ -384,10 +384,10 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
         for i, b in enumerate(days[-ch:]):
             filled, rest = bar(b["cost"], peak, room)
             sc.put(cy + i, cx, b["key"][5:], muted)
-            sc.put(cy + i, cx + 6, LEFT_EDGE, muted)
+            sc.put(cy + i, cx + 6, LEFT_EDGE, accent)
             sc.put(cy + i, cx + 7, filled, accent)
             sc.put(cy + i, cx + 7 + len(filled), rest, muted)
-            sc.put(cy + i, cx + 7 + room, RIGHT_EDGE, muted)
+            sc.put(cy + i, cx + 7 + room, RIGHT_EDGE, accent)
             cost = ledger.fmt_usd(b["cost"], b["cost_known"])
             sc.put(cy + i, cx + cw - len(cost), cost, curses.A_BOLD)
         y += chart_h + 1
