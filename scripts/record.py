@@ -107,32 +107,53 @@ def run_hook() -> None:
 # backfill path
 # --------------------------------------------------------------------------
 
-def backfill_session(transcript: Path) -> list[dict]:
-    """Re-derive a finished session's rows from its transcript.
+def import_session(transcript: Path, state: dict):
+    """(rows, new state) for everything in a transcript the state hasn't seen.
+
+    Driven entirely by byte offsets, which makes one operation out of two:
+    the first import of a finished session, and the catch-up for one whose
+    Stop hook never ran. That second case is not exotic -- a session is live
+    while it is being imported, hooks reload only on restart, and a session
+    can be recorded from another machine. Before this, sync skipped any
+    session that had state at all, so a session imported while still running
+    had its remaining turns stranded for good.
 
     Turn boundaries are reconstructed from real user prompts (see
-    ledger.is_turn_start), so backfilled task counts are close but not
-    guaranteed identical to what the live hook would have recorded. Token
-    and cost totals are exact either way.
-
-    Each turn is labelled with the prompt that opened it, so history
-    imported from disk names its tasks exactly like live recording does.
+    ledger.is_turn_start), so task counts are close but not guaranteed
+    identical to what the live hook would have recorded. Token and cost
+    totals are exact either way.
     """
     session_id = transcript.stem
+    offsets = dict(state.get("offsets") or {})
+    seen = set(state.get("seen") or [])
+    opening = int(state.get("turn") or 0)
+    turn = opening
+    carried = state.get("prompt", "")
+
     turns: dict[int, list] = {}
     labels: dict[int, str] = {}
     boundaries: list[tuple[str, int]] = []
-    turn = 0
-    seen = set()
 
-    with open(transcript, encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
+    try:
+        size = transcript.stat().st_size
+    except OSError:
+        return [], state
+    start = offsets.get("main", 0)
+    if size < start:                      # rotated or truncated underneath us
+        start, seen = 0, set()
+
+    with open(transcript, "rb") as fh:
+        fh.seek(start)
+        data = fh.read()
+    complete, newline, partial = data.rpartition(b"\n")
+    if newline:
+        offsets["main"] = start + len(data) - len(partial)
+        for raw in complete.split(b"\n"):
+            if not raw.strip():
                 continue
             try:
-                entry = json.loads(line)
-            except ValueError:
+                entry = json.loads(raw.decode("utf-8"))
+            except (ValueError, UnicodeDecodeError):
                 continue
             if ledger.is_turn_start(entry):
                 turn += 1
@@ -141,9 +162,10 @@ def backfill_session(transcript: Path) -> list[dict]:
                 # An interrupt marker opens a turn of its own but isn't a
                 # task anyone asked for; if it ends up owning work, it is a
                 # continuation of the task before it.
-                if label and not ledger.is_human_prompt(entry) and not label.startswith("\u21ba"):
-                    label = labels.get(turn - 1, label)
-                labels[turn] = label
+                if (label and not ledger.is_human_prompt(entry)
+                        and not label.startswith("\u21ba")):
+                    label = labels.get(turn - 1, carried)
+                labels[turn] = label or carried
                 continue
             rec = ledger.usage_of(entry)
             if rec is None or rec["request_id"] in seen:
@@ -154,12 +176,12 @@ def backfill_session(transcript: Path) -> list[dict]:
     # Subagent transcripts are separate files, so attribute each of their
     # requests to whichever turn was open at that timestamp.
     for path in ledger.subagent_files(transcript):
-        for rec in ledger.scan(path)[0]:
-            if rec["request_id"] in seen:
-                continue
+        found, new_offset, _ = ledger.scan(path, offsets.get(path.name, 0), seen)
+        offsets[path.name] = new_offset
+        for rec in found:
             seen.add(rec["request_id"])
             ts = rec["ts"] or ""
-            owner = 1
+            owner = max(opening, 1)
             for b_ts, b_turn in boundaries:
                 if b_ts <= ts:
                     owner = b_turn
@@ -170,8 +192,14 @@ def backfill_session(transcript: Path) -> list[dict]:
     rows = []
     for turn_no in sorted(turns):
         rows.extend(rows_for(turns[turn_no], session_id, turn_no,
-                             labels.get(turn_no, "")))
-    return rows
+                             labels.get(turn_no, carried)))
+
+    return rows, {
+        "turn": turn,
+        "offsets": offsets,
+        "seen": list(seen)[-ledger.SEEN_CAP:],
+        "prompt": labels.get(turn, carried),
+    }
 
 
 def run_sync() -> None:
@@ -193,15 +221,24 @@ def run_sync() -> None:
 def sync(cwd: str, force: bool = False, transcript=None) -> dict:
     """Import any sessions for this project that aren't in the ledger yet.
 
-    Cheap to call speculatively: sessions already tracked are recognised by
-    their state file and skipped without reading the transcript, so a
-    fully-synced project costs a directory listing (~40ms even at 500
-    sessions). Returns counts; prints nothing.
+    Cheap to call speculatively: a session with nothing new past its
+    recorded offset costs a stat and a seek to the end of the file, so a
+    fully-synced project stays a directory listing's worth of work.
+    Returns counts; prints nothing.
     """
-    result = {"imported": 0, "tasks": 0, "skipped": 0, "transcripts": False}
+    result = {"imported": 0, "resumed": 0, "tasks": 0, "skipped": 0,
+              "transcripts": False}
     path = ledger.ledger_path(cwd, transcript)
-    if force and path.exists():
-        path.unlink()
+    if force:
+        if path.exists():
+            path.unlink()
+        # The offsets have to go with the rows, or a rebuild would resume
+        # from where the deleted ledger had got to and import nothing.
+        for stale in ledger.state_dir(transcript).glob("*.json"):
+            try:
+                stale.unlink()
+            except OSError:
+                pass
 
     tdir = ledger.project_transcript_dir(cwd, transcript)
     if tdir is None or not tdir.is_dir():
@@ -218,24 +255,21 @@ def sync(cwd: str, force: bool = False, transcript=None) -> dict:
     try:
         for session_file in sorted(p for p in tdir.glob("*.jsonl") if p.is_file()):
             session_id = session_file.stem
-            # A session the hook already tracks has state; leave it alone so
-            # sync can never double-count it.
-            if not force and ledger.state_path(session_id, transcript).exists():
-                result["skipped"] += 1
-                continue
-            rows = backfill_session(session_file)
+            # Sessions already tracked are read from their recorded offset,
+            # not skipped: what has already been counted is behind that mark,
+            # and anything past it is a turn nobody recorded.
+            tracked = ledger.state_path(session_id, transcript).exists()
+            state = ledger.load_state(session_id, transcript)
+            rows, new_state = import_session(session_file, state)
             if not rows:
+                if new_state.get("offsets") != state.get("offsets"):
+                    ledger.save_state(session_id, new_state, transcript)
+                result["skipped"] += 1 if tracked else 0
                 continue
             ledger.append_rows(path, rows)
-            result["imported"] += 1
+            ledger.save_state(session_id, new_state, transcript)
+            result["resumed" if tracked else "imported"] += 1
             result["tasks"] += len({r["turn"] for r in rows})
-            last = max(rows, key=lambda r: r["turn"])
-            ledger.save_state(session_id, {
-                "turn": last["turn"],
-                "offsets": {"main": session_file.stat().st_size},
-                "seen": [],
-                "prompt": last.get("prompt", ""),
-            }, transcript)
     finally:
         _release_lock(lock)
     return result
@@ -275,8 +309,13 @@ def run_backfill(cwd: str, force: bool) -> int:
     if not r["transcripts"]:
         print("No transcripts on disk for this project.")
         return 0
-    note = f", skipped {r['skipped']} already tracked" if r["skipped"] else ""
-    print(f"Imported {r['imported']} session(s), {r['tasks']} task(s){note}.")
+    parts = [f"Imported {r['imported']} session(s)"]
+    if r["resumed"]:
+        parts.append(f"resumed {r['resumed']}")
+    parts.append(f"{r['tasks']} task(s)")
+    if r["skipped"]:
+        parts.append(f"{r['skipped']} already up to date")
+    print(", ".join(parts) + ".")
     print(f"Ledger: {ledger.ledger_path(cwd)}")
     return 0
 

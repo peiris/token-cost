@@ -15,6 +15,7 @@ builds from, so the two can never disagree.
 from __future__ import annotations
 
 import curses
+import json
 import locale
 import sys
 from pathlib import Path
@@ -73,6 +74,7 @@ if UNICODE:
     CORNERS = "╭╮╰╯"
     T_DOWN, T_UP = "┬", "┴"
     HALF_DOWN, HALF_UP = "▄", "▀"
+    LOGO = "▂▄▆█"          # a rising bar chart: what this thing is about
     SEP, ELLIPSIS = "│", "…"
     LEFT_ARROW, RIGHT_ARROW = "‹", "›"
     KEYS = "←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit"
@@ -84,6 +86,7 @@ else:
     CORNERS = "++++"
     T_DOWN, T_UP = "+", "+"
     HALF_DOWN, HALF_UP = None, None
+    LOGO = "..:#"
     SEP, ELLIPSIS = "|", "~"
     LEFT_ARROW, RIGHT_ARROW = "<", ">"
     KEYS = "Left/Right Tabs - Up/Down Scroll - r Refresh - q Quit"
@@ -129,6 +132,16 @@ class Data:
 # --------------------------------------------------------------------------
 # drawing helpers
 # --------------------------------------------------------------------------
+
+def version() -> str:
+    """The plugin's version, read from the manifest beside this file."""
+    manifest = Path(__file__).resolve().parent.parent / ".claude-plugin" / "plugin.json"
+    try:
+        with open(manifest, encoding="utf-8") as fh:
+            return "v" + json.load(fh)["version"]
+    except (OSError, ValueError, KeyError):
+        return ""
+
 
 def caps(text: str) -> str:
     """Capitalise each word, leaving the rest of it alone.
@@ -178,6 +191,15 @@ class Screen:
             # The bottom-right cell always raises on write; nothing else here
             # can fail, and losing one glyph beats losing the frame.
             pass
+
+
+def centred(sc: Screen, y: int, x: int, width: int, parts) -> None:
+    """Place (text, attr) segments as one centred run."""
+    span = sum(len(text) for text, _ in parts)
+    at = x + max(0, (width - span) // 2)
+    for text, attr in parts:
+        sc.put(y, at, text, attr)
+        at += len(text)
 
 
 def panel(sc: Screen, y: int, x: int, w: int, h: int, title: str) -> None:
@@ -502,25 +524,53 @@ def draw_tabs(sc: Screen, tab: int, y: int, left: int, width: int) -> None:
     # as a button. Covering those cells makes the fill meet its neighbours.
     x0 = slots[tab]
     block = f" {labels[tab]} "
-    if HALF_DOWN:
-        sc.put(y, x0, HALF_DOWN * len(block), edge)
-        sc.put(y + 2, x0, HALF_UP * len(block), edge)
-    sc.put(y + 1, x0, block, edge | curses.A_REVERSE | curses.A_BOLD)
+    fill = edge | curses.A_REVERSE | curses.A_BOLD
+    # Solid through all three rows. Half blocks would stop at the 50% mark to
+    # meet the rules, but fonts don't all draw a rule exactly there, and a
+    # hairline of background across the top of a tab looks like a defect. A
+    # tab standing proud of its rail does not.
+    sc.put(y, x0, " " * len(block), fill)
+    sc.put(y + 1, x0, block, fill)
+    sc.put(y + 2, x0, " " * len(block), fill)
 
 
-def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
-    """Title and tab strip. Returns the first row the tab body may use."""
+def draw_header(sc: Screen, data: Data, left: int, width: int) -> int:
+    """The banner: mark, name, version and project, centred in a box.
+
+    Returns the row after it. Skipped on a short terminal, where five rows
+    of masthead would come straight out of the table below it.
+    """
     accent = curses.color_pair(C_ACCENT)
     muted = curses.color_pair(C_MUTED)
 
-    sc.put(0, 2, "token-cost", accent | curses.A_BOLD)
-    right = data.project
-    sc.put(0, max(2, sc.w - len(right) - 2), right, muted)
+    if sc.h < 20:
+        sc.put(0, left, "token-cost", accent | curses.A_BOLD)
+        sc.put(0, max(left, sc.w - len(data.project) - 2), data.project, muted)
+        return 2
+
+    height = box_for(1)
+    panel(sc, 0, left, width, height, "")
+    x, y, w, _ = inside(left, 0, width, height)
+    centred(sc, y, x, w, [
+        (LOGO, accent),
+        ("  token-cost", accent | curses.A_BOLD),
+        (f" {version()}" if version() else "", muted),
+        ("  ·  ", muted),
+        (data.project, curses.A_BOLD),
+    ])
+    return height + 1
+
+
+def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
+    """Header and tab strip. Returns the first row the tab body may use."""
+    accent = curses.color_pair(C_ACCENT)
+    muted = curses.color_pair(C_MUTED)
 
     left, width = 2, sc.w - 4
+    top = draw_header(sc, data, left, width)
     needed = sum(len(label) + 1 for label, _, _ in TABS) + 1
     if needed <= width:
-        draw_tabs(sc, tab, 2, left, width)
+        draw_tabs(sc, tab, top, left, width)
     else:
         # No room for the strip. Name the tab you are on and where it sits,
         # because a bar that runs off the edge hides both.
@@ -528,17 +578,17 @@ def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
         # Padded like everything else, unless the screen is so short that
         # two rows of air here would cost the table below its own frame.
         height = box_for(1) if sc.h >= 20 else 3
-        panel(sc, 2, left, width, height, "")
-        bx, by, bw, _ = inside(left, 2, width, height)
+        panel(sc, top, left, width, height, "")
+        bx, by, bw, _ = inside(left, top, width, height)
         sc.put(by, bx, LEFT_ARROW, muted)
         sc.put(by, bx + 2, fit(current, bw - 10), accent | curses.A_BOLD)
         sc.put(by, bx + bw - len(place) - 2, place, muted)
         sc.put(by, bx + bw - 1, RIGHT_ARROW, muted)
         sc.put(sc.h - 1, 2, fit(KEYS, sc.w - 4), muted)
-        return 2 + height
+        return top + height
 
     sc.put(sc.h - 1, 2, fit(KEYS, sc.w - 4), muted)
-    return 5
+    return top + 3
 
 
 def run(stdscr, cwd: str) -> None:

@@ -237,6 +237,28 @@ _COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.S)
 _SUMMARY = re.compile(r"<summary>(.*?)</summary>", re.S)
 
 
+# A dragged-in screenshot arrives as an absolute path, often quoted and
+# often longer than the label itself -- one of those eats the whole line and
+# says nothing. What matters is that something was attached, and what kind.
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".heif",
+                   ".bmp", ".svg", ".tiff", ".tif", ".avif"}
+_QUOTED_PATH = re.compile(r"""(['"])((?:~|/)[^'"]+)\1""")
+_BARE_PATH = re.compile(r'(?:~|/)[^\s\'"]*/[^\s\'"]*')
+
+
+def _tag(path: str) -> str:
+    dot = path.rfind(".")
+    slash = path.rfind("/")
+    suffix = path[dot:].lower() if dot > slash else ""
+    return "[image]" if suffix in _IMAGE_SUFFIXES else "[file]"
+
+
+def tag_paths(text: str) -> str:
+    """Replace absolute file paths with [image] or [file]."""
+    text = _QUOTED_PATH.sub(lambda m: _tag(m.group(2)), text)
+    return _BARE_PATH.sub(lambda m: _tag(m.group(0)), text)
+
+
 def _text_of(content) -> str:
     """Flatten a user message's content down to its plain text."""
     if isinstance(content, str):
@@ -299,10 +321,11 @@ def prompt_of(entry: dict) -> str:
             label += " " + args.group(1).strip()
         # A slash command is often followed by the real prompt in the same
         # entry (the client appends its output, then the user's text).
-        rest = condense(_NOISE_BLOCK.sub(" ", _COMMAND.sub(" ", text)))
+        rest = condense(tag_paths(
+            _NOISE_BLOCK.sub(" ", _COMMAND.sub(" ", text))))
         return condense(f"{label} {rest}".strip())
 
-    return condense(_NOISE_BLOCK.sub(" ", text))
+    return condense(tag_paths(_NOISE_BLOCK.sub(" ", text)))
 
 
 def is_turn_start(entry: dict) -> bool:

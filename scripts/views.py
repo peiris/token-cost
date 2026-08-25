@@ -58,8 +58,12 @@ def models_cell(b: dict) -> str:
 
 
 def label_of(b: dict, width: int) -> str:
-    """A bucket's prompt, or a dash for rows recorded before prompts were."""
-    return ledger.condense(b.get("prompt") or "—", width)
+    """A bucket's prompt, or a dash for rows recorded before prompts were.
+
+    Paths are tagged here as well as at record time, so rows written before
+    that existed stop showing a screenshot's temp path as their whole label.
+    """
+    return ledger.condense(ledger.tag_paths(b.get("prompt") or "—"), width)
 
 
 def cache_write(b: dict) -> int:

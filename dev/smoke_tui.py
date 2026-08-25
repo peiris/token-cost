@@ -221,9 +221,17 @@ def ledger_has_rows(cwd: str) -> bool:
 
 
 def broke(frame: str) -> str:
-    for signature in ("Traceback", "curses.error", "AttributeError", "KeyError"):
-        if signature in frame:
-            return frame[-500:]
+    """A real crash on screen, as opposed to one being talked about.
+
+    Task labels are the user's own prompts, and a prompt can contain the
+    word Traceback -- this project's own ledger has several. So match the
+    shape of an actual Python failure, which is the header immediately
+    above a File line, rather than any one word.
+    """
+    if "Traceback (most recent call last):" in frame and '  File "' in frame:
+        return frame[-500:]
+    if "curses.error" in frame and '  File "' in frame:
+        return frame[-500:]
     return ""
 
 

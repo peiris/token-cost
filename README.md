@@ -270,11 +270,15 @@ same ledger as a full-screen app, with tabs and no limit on how much it can
 show:
 
 ```
-  token-cost                                                                                      token-cost
+  ╭────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │                                                                                                        │
+  │                                 ▂▄▆█  token-cost v0.8.0  ·  token-cost                                 │
+  │                                                                                                        │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
-  ▄▄▄▄▄▄▄▄▄▄─────┬─────────┬──────────┬─────┬──────────────────────────────────────────────────────────────╮
+            ─────┬─────────┬──────────┬─────┬──────────────────────────────────────────────────────────────╮
    Overview Today│This Week│This Month│Tasks│Sessions                                                      │
-  ▀▀▀▀▀▀▀▀▀▀─────┴─────────┴──────────┴─────┴──────────────────────────────────────────────────────────────╯
+            ─────┴─────────┴──────────┴─────┴──────────────────────────────────────────────────────────────╯
   ╭─ Project ───────────────────────╮  ╭─ Models ──────────────────────────────────────────────────────────╮
   │                                 │  │                                                                   │
   │  16 Tasks                       │  │  opus-5            16 Tasks                               $15.85  │
@@ -285,8 +289,6 @@ show:
 
   ╭─ Cost Per Day ─────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                        │
-  │  08-23 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▏      $7.25  │
-  │  08-24 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏      $5.41  │
   │  08-25 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏      $3.48  │
   │                                                                                                        │
   ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
@@ -294,8 +296,6 @@ show:
   ╭─ Most Expensive Tasks ─────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                        │
   │  Import history automatically on session start instead of asking                                $2.70  │
-  │  Dedupe requests by requestId, we're counting every content block                               $2.55  │
-  │  Add a --backfill flag for sessions that predate the plugin                                     $2.30  │
   │                                                                                                        │
   ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
@@ -310,21 +310,21 @@ The Tasks tab is the one the conversation can't carry — every task on record,
 scrollable, however many there are:
 
 ```
-  token-cost                                                                                      token-cost
+  ╭────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │                                                                                                        │
+  │                                 ▂▄▆█  token-cost v0.8.0  ·  token-cost                                 │
+  │                                                                                                        │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
-  ╭────────┬─────┬─────────┬──────────▄▄▄▄▄▄▄──────────────────────────────────────────────────────────────╮
+  ╭────────┬─────┬─────────┬──────────       ──────────────────────────────────────────────────────────────╮
   │Overview│Today│This Week│This Month Tasks Sessions                                                      │
-  ╰────────┴─────┴─────────┴──────────▀▀▀▀▀▀▀──────────────────────────────────────────────────────────────╯
+  ╰────────┴─────┴─────────┴──────────       ──────────────────────────────────────────────────────────────╯
   ╭─ Every Task ───────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                        │
   │  WHEN         TASK                                 MODEL      INPUT  OUTPUT  CACHE R  CACHE W  EST. $  │
   │  08-25 10:41  /token-cost tasks                    opus-5         1     189    26.2k     3.5k   $0.05  │
   │  08-25 10:22  Add a per-task breakdown to the re…  opus-5        33    4.6k   951.2k    26.4k   $0.85  │
   │  08-25 09:58  Slash commands should record as th…  opus-5        17    1.4k   446.6k     3.5k   $0.29  │
-  │  08-25 09:23  Save the prompt that started each …  opus-5 +1     47   11.5k     3.4M    74.7k   $2.28  │
-  │  08-24 13:31  Add update instructions to the REA…  opus-5        10    1.2k   427.4k     3.4k   $0.28  │
-  │  08-24 13:06  Publish the plugin to the marketpl…  opus-5        25    5.4k     1.4M    15.7k   $1.02  │
-  │  08-24 10:05  Add a today view broken down by mo…  opus-5        20    4.6k     1.5M    17.6k   $1.02  │
   │  ────────────────────────────────────────────────────────────────────────────────────────────────────  │
   │  TOTAL                                                          393   81.4k    21.8M   474.4k  $16.14  │
   │                                                                                                        │
@@ -433,6 +433,9 @@ rows stay correct after prices change. A model with no entry records
 - **No long-context premium.** Transcripts record `claude-opus-5` with no 1M
   marker, so the higher price tier for >200K-token inputs can't be detected.
   Long-context-heavy projects read low.
-- **Backfilled task counts are approximate** — turn boundaries are
+- **Imported task counts are approximate** — turn boundaries are
   reconstructed from the transcript. Token and cost totals are exact.
+- **A session's own hooks load at startup**, so a plugin installed or updated
+  mid-session records nothing further until you restart. Nothing is lost:
+  the next sync reads that session's transcript from where recording stopped.
 - Backfill can only reach as far back as Claude Code still keeps transcripts.
