@@ -66,8 +66,11 @@ def models_cell(b: dict) -> str:
 # What a row with no prompt is called. The plain report keeps the dash --
 # it has a chat message's width to live within, and a phrase this long
 # repeated down 900 rows is a wall. The UI has the room to say it.
+# Labels are back-filled from transcripts on every sync, so a task still
+# showing this is one whose transcript was already deleted when the plugin
+# first saw the project -- the name is genuinely gone.
 UNKNOWN = "Unknown"
-UNKNOWN_NOTE = "(tasks before plugin installed)"
+UNKNOWN_NOTE = "(transcript no longer on disk)"
 UNKNOWN_LONG = f"{UNKNOWN} {UNKNOWN_NOTE}"
 
 

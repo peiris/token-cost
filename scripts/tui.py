@@ -330,7 +330,7 @@ def draw_boxed_table(sc: Screen, view, top: int, left: int, width: int,
 def put_label(sc: Screen, y: int, x: int, text: str, attr: int = 0) -> None:
     """Draw a cell, dimming the aside on an unknown label.
 
-    "Unknown (tasks before plugin installed)" is one name and one
+    "Unknown (transcript no longer on disk)" is one name and one
     explanation; the explanation shouldn't carry the same weight as the
     prompts it sits among.
     """

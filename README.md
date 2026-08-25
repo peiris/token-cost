@@ -506,6 +506,14 @@ under the same lock the recorder uses.
   request, its peak context is derived after the fact and still feeds `CTX`.
 - **Imported task counts are approximate** — turn boundaries are
   reconstructed from the transcript. Token and cost totals are exact.
+- **Task names heal themselves.** Rows recorded namelessly by older versions
+  are re-labelled on every sync from the transcripts that still know the
+  prompt; a turn whose prompt can't be reconstructed falls back to the
+  session's `ai-title` — the tldr Claude Code itself generates for the
+  resume picker. There is no remote lookup behind this: the Messages API
+  is stateless and no endpoint returns a session summary by id, so once a
+  transcript is deleted the name is genuinely gone, and the row says
+  "Unknown (transcript no longer on disk)".
 - **A session's own hooks load at startup**, so a plugin installed or updated
   mid-session records nothing further until you restart. Nothing is lost:
   the next sync reads that session's transcript from where recording stopped.
