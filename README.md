@@ -208,11 +208,12 @@ Python, and no model is involved in reading a transcript or writing a row.
 
 The only model in the loop is the one that prints the table. Inline shell
 output is substituted into the prompt rather than shown directly, so the
-command asks for it to be echoed back — mechanical work with no judgement in
-it, and no reason to spend a frontier model on. The command is pinned:
+command asks for it to be echoed back — transcription, with no judgement in
+it, and no reason to spend a frontier model on. The command is pinned to the
+cheapest model that can copy a wide table faithfully:
 
 ```yaml
-model: sonnet
+model: haiku
 ```
 
 The override lasts for that turn only; your session model resumes on your next
