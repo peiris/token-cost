@@ -88,7 +88,7 @@ def ui_command() -> str:
     return f"python3 {PLUGIN_ROOT / 'scripts' / 'tui.py'}"
 
 
-def open_window(command: str) -> str | None:
+def open_window(command: str, title: str) -> str | None:
     """Open the UI in a new terminal window. Returns the app used, or None.
 
     A slash command has no terminal to hand a full-screen app, but the
@@ -100,9 +100,24 @@ def open_window(command: str) -> str | None:
     if sys.platform != "darwin" or not shutil.which("osascript"):
         return None
     app = "iTerm" if os.environ.get("TERM_PROGRAM") == "iTerm.app" else "Terminal"
-    escaped = command.replace("\\", "\\\\").replace('"', '\\"')
-    script = (f'tell application "{app}" to do script "{escaped}"\n'
-              f'tell application "{app}" to activate')
+
+    def quote(text: str) -> str:
+        return text.replace("\\", "\\\\").replace('"', '\\"')
+
+    if app == "Terminal":
+        # Name the window after the project, so several of these are
+        # telling apart at a glance.
+        script = (f'tell application "Terminal"\n'
+                  f'  set theTab to do script "{quote(command)}"\n'
+                  f'  try\n'
+                  f'    set custom title of theTab to "{quote(title)}"\n'
+                  f'  end try\n'
+                  f'  activate\n'
+                  f'end tell')
+    else:
+        script = (f'tell application "iTerm" to create window with default '
+                  f'profile command "{quote(command)}"\n'
+                  f'tell application "iTerm" to activate')
     try:
         done = subprocess.run(["osascript", "-e", script],
                               capture_output=True, timeout=20)
@@ -112,27 +127,35 @@ def open_window(command: str) -> str | None:
 
 
 def launch_block(cwd: str) -> str:
-    """What `/token-cost ui` prints: the UI, opened if that's possible."""
+    """What `/token-cost ui` prints: the UI, opened if that's possible.
+
+    Whatever this says gets read by someone whose data is now in another
+    window. Say that first and plainly -- there is nothing to read here.
+    """
     import shlex
+    project = Path(cwd).name
     command = ui_command()
     # A new window opens in the home directory, which is somebody else's
     # ledger. Name the project explicitly rather than inheriting a cwd.
-    opened = open_window(f"{command} --cwd {shlex.quote(cwd)}")
+    opened = open_window(f"{command} --cwd {shlex.quote(cwd)}",
+                         f"token-cost · {project}")
     if opened:
         return "\n".join([
-            f"Opened the token-cost UI in a new {opened} window.",
+            f"A new {opened} window is now open with the token-cost UI for"
+            f" {project}.",
+            f"Switch to that window — your usage data is there, not here.",
             "",
-            "Tabs: Overview, Today, This Week, This Month, Tasks, Sessions.",
-            "←/→ or 1–6 to move, ↑/↓ to scroll, r to refresh, q to quit.",
+            "  Tabs   Overview · Today · This Week · This Month · Tasks · Sessions",
+            "  Keys   ←/→ or 1-6 change tab · ↑/↓ scroll · r refresh · q quit",
             "",
-            f"It's on your PATH too — run {command} from any terminal.",
+            f"Reopen it any time by running {command} in any terminal.",
         ])
     return "\n".join([
-        "token-cost UI — tabs for Overview, Today, This Week, This Month,",
-        "Tasks and Sessions, with no limit on how much it can show.",
+        f"The token-cost UI shows {project}'s usage across tabs for Overview,",
+        "Today, This Week, This Month, Tasks and Sessions.",
         "",
-        "A full-screen app needs a terminal of its own, and this one",
-        "couldn't be opened for you. Run it from any terminal:",
+        "It needs a terminal window of its own, and one could not be opened",
+        "for you here. Run this in any terminal:",
         "",
         f"    {command}",
     ])
