@@ -605,35 +605,39 @@ def rendered(view) -> Rendered:
 def draw_search_input(sc: Screen, search: Search, tab: int, y: int, x: int,
                       width: int) -> None:
     """A persistent search input inside a task or session table."""
-    accent = curses.color_pair(C_ACCENT)
     muted = curses.color_pair(C_MUTED)
     label = "SEARCH"
     field_x = x + len(label) + GAP
     field_w = max(0, width - len(label) - GAP)
+    inner_w = max(0, field_w - 2)
     query = search.query(tab)
 
-    sc.put(y, x, label, accent | curses.A_BOLD)
+    # Keep the label and the field chrome quiet so the active query is the
+    # thing that draws the eye. The input is a real bounded control, rather
+    # than a prompt followed by the table's divider rule.
+    sc.put(y, x, label, muted | curses.A_BOLD)
     sc.search_hit = (tab, y, x, width)
     if search.editing == tab:
         value = query + MARKER
-        if len(value) > field_w:
-            value = (ELLIPSIS + value[-(field_w - 1):]
-                     if field_w > 1 else ELLIPSIS[:field_w])
-        sc.put(y, field_x, value, curses.A_BOLD)
+        if len(value) > inner_w:
+            value = (ELLIPSIS + value[-(inner_w - 1):]
+                     if inner_w > 1 else ELLIPSIS[:inner_w])
+        sc.put(y, field_x + 1, value, curses.A_BOLD)
         if not query:
-            sc.put(y, field_x + 2, fit("Type a name to filter", field_w - 2),
+            sc.put(y, field_x + 3, fit("Type a name to filter", inner_w - 2),
                    muted)
     elif query:
-        shown = fit(query, field_w)
-        sc.put(y, field_x, shown, curses.A_BOLD)
-        hint_x = field_x + len(shown) + 2
-        if hint_x + len("Esc clears") <= field_x + field_w:
+        shown = fit(query, inner_w)
+        sc.put(y, field_x + 1, shown, curses.A_BOLD)
+        hint_x = field_x + len(shown) + 3
+        if hint_x + len("Esc clears") <= field_x + inner_w:
             sc.put(y, hint_x, "Esc clears", muted)
     else:
         noun = SEARCHABLE[tab].lower()
         placeholder = f"Press / or click, then type to filter {noun}"
-        sc.put(y, field_x, fit(placeholder, field_w), muted)
-    sc.put(y + 1, x, RULE * min(width, sc.w - x), accent)
+        sc.put(y, field_x + 1, fit(placeholder, inner_w), muted)
+    sc.put(y, field_x, LEFT_EDGE, muted)
+    sc.put(y, field_x + field_w - 1, RIGHT_EDGE, muted)
 
 
 def draw_boxed_table(sc: Screen, view, top: int, left: int, width: int,
@@ -645,16 +649,16 @@ def draw_boxed_table(sc: Screen, view, top: int, left: int, width: int,
     if height < 6:                       # box, header, rule, total, one row
         if has_search and height > 2:
             draw_search_input(sc, search, search_tab, top, left, width)
-            return draw_table(sc, view, top + 2, left, width, height - 2,
+            return draw_table(sc, view, top + 1, left, width, height - 1,
                               offset)
         return draw_table(sc, view, top, left, width, height, offset)
     panel(sc, top, left, width, height, title)
-    # Search needs two rows before the table's header, body, rule and total.
-    minimum = 6 if has_search else 4
+    # Search needs one row before the table's header, body, rule and total.
+    minimum = 5 if has_search else 4
     x, y, w, h = inside(left, top, width, height, min_content=minimum)
     if has_search:
         draw_search_input(sc, search, search_tab, y, x, w)
-        y, h = y + 2, h - 2
+        y, h = y + 1, h - 1
     return draw_table(sc, view, y, x, w, h, offset)
 
 
@@ -907,12 +911,12 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int,
 
     if not view.buckets:
         if built.query:
-            height = min(room, box_for(3))
+            height = min(room, box_for(2))
             panel(sc, top, left, width, height, label)
-            nx, ny, nw, _ = inside(left, top, width, height, min_content=3)
+            nx, ny, nw, _ = inside(left, top, width, height, min_content=2)
             draw_search_input(sc, search, tab, ny, nx, nw)
             message = f'No {SEARCHABLE[tab].lower()} match "{built.query}".'
-            sc.put(ny + 2, nx, message, curses.color_pair(C_MUTED))
+            sc.put(ny + 1, nx, message, curses.color_pair(C_MUTED))
         else:
             panel(sc, top, left, width, box_for(1), label)
             nx, ny, _, _ = inside(left, top, width, box_for(1))
@@ -927,7 +931,7 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int,
         split_h = box_for(len(summary.buckets) + 3)  # header, rows, rule, total
 
     searchable = tab in SEARCHABLE and search is not None
-    if not main.buckets or room < split_h + (10 if searchable else 8):
+    if not main.buckets or room < split_h + (9 if searchable else 8):
         shown = draw_boxed_table(sc, view, top, left, width, room, offset,
                                  view.subtitle, search, tab)
         return shown, len(view.buckets)
