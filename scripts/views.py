@@ -63,24 +63,18 @@ def models_cell(b: dict) -> str:
     return f"{short_model(models[0])} +{len(models) - 1}"
 
 
-# What a row with no prompt is called. The plain report keeps the dash --
-# it has a chat message's width to live within, and a phrase this long
-# repeated down 900 rows is a wall. The UI has the room to say it.
-# Labels are back-filled from transcripts on every sync, so a task still
-# showing this is one whose transcript was already deleted when the plugin
-# first saw the project -- the name is genuinely gone.
+# What a row with no prompt is called: a turn whose transcript yielded no
+# prompt and no ai-title when it was imported. The plain report keeps the
+# dash -- it has a chat message's width to live within, and a phrase this
+# long repeated down 900 rows is a wall. The UI has the room to say it.
 UNKNOWN = "Unknown"
-UNKNOWN_NOTE = "(transcript no longer on disk)"
+UNKNOWN_NOTE = "(no prompt on record)"
 UNKNOWN_LONG = f"{UNKNOWN} {UNKNOWN_NOTE}"
 
 
 def label_of(b: dict, width: int, unknown: str = "—") -> str:
-    """A bucket's prompt, or `unknown` for rows recorded before prompts were.
-
-    Paths are tagged here as well as at record time, so rows written before
-    that existed stop showing a screenshot's temp path as their whole label.
-    """
-    return ledger.condense(ledger.tag_paths(b.get("prompt") or unknown), width)
+    """A bucket's prompt, or `unknown` when none could be derived."""
+    return ledger.condense(b.get("prompt") or unknown, width)
 
 
 def cache_write(b: dict) -> int:
@@ -270,12 +264,11 @@ def build(rows, mode, scope="", label_width=None, unknown="—") -> View:
     if mode == "models":
         # Peak context: the largest single prompt each model was handed.
         # Beyond 200K the model was in 1M-window territory and its rows say
-        # so -- opus-5 (1m) -- and this column says how deep. A dash means
-        # rows from before the recorder measured it, not zero.
+        # so -- opus-5 (1m) -- and this column says how deep.
         ctx_col = ("CTX", ">",
-                   lambda b: ledger.fmt_tokens(b["ctx"]) if b.get("ctx") else "—",
-                   lambda bs: ledger.fmt_tokens(max(b.get("ctx") or 0 for b in bs))
-                   if any(b.get("ctx") for b in bs) else "—")
+                   lambda b: ledger.fmt_tokens(b["ctx"]),
+                   lambda bs: ledger.fmt_tokens(max((b["ctx"] for b in bs),
+                                                    default=0)))
         return View(
             [("MODEL", "<", lambda b: b["key"], None)]
             + NUMERIC_COLS[:-1] + [ctx_col, NUMERIC_COLS[-1]],

@@ -260,8 +260,8 @@ python3 scripts/record.py --backfill --force --cwd "$PWD"
 ```
 
 That rebuilds the ledger from the transcripts still on disk, so anything older
-than Claude Code's retention window is dropped. It is how you re-label old
-rows after an upgrade, but it trades history away to do it.
+than Claude Code's retention window is dropped — it trades history away for a
+clean slate.
 
 ## The UI
 
@@ -411,7 +411,9 @@ flattened to one line — enough to recognise the task, not a copy of the
 conversation. Slash commands are recorded as the command, and a task a
 subagent notification woke is recorded as that notification's summary. It is
 the one piece of your own text the ledger holds; like everything else here it
-stays on your machine. Rows written before this existed show as `—`.
+stays on your machine. A task whose prompt can't be reconstructed is named by
+the session's `ai-title` — the tldr Claude Code itself generates for the
+resume picker — and one with neither shows as `—`.
 
 ## How the numbers are produced
 
@@ -492,28 +494,17 @@ passes only when all three agree:
   rate table and must land inside the band the two cache-write TTLs allow.
   Two implementations agreeing on the money, one of them Anthropic's.
 
-`--repair` rebuilds any session the replay proves wrong from its transcript,
-under the same lock the recorder uses.
-
 ## Limits
 
 - **Costs are estimates** computed from published API rates. On a subscription
   plan nothing is billed per token, so read the figure as "what this would
   have cost on the API".
-- **Rows recorded before v0.9.2 predate the `(1m)` marker** and keep their
-  plain model label; their dollars were already exact, because 1M usage bills
-  at standard rates (see *1M context* above). Where such a row holds a single
-  request, its peak context is derived after the fact and still feeds `CTX`.
 - **Imported task counts are approximate** — turn boundaries are
   reconstructed from the transcript. Token and cost totals are exact.
-- **Task names heal themselves.** Rows recorded namelessly by older versions
-  are re-labelled on every sync from the transcripts that still know the
-  prompt; a turn whose prompt can't be reconstructed falls back to the
-  session's `ai-title` — the tldr Claude Code itself generates for the
-  resume picker. There is no remote lookup behind this: the Messages API
-  is stateless and no endpoint returns a session summary by id, so once a
-  transcript is deleted the name is genuinely gone, and the row says
-  "Unknown (transcript no longer on disk)".
+- **The ledger format is not stable.** This is a work in progress: a new
+  version may change what a row holds without reading what an old one wrote.
+  When that happens, rebuild from the transcripts still on disk with
+  `--backfill --force` rather than expecting old rows to be understood.
 - **A session's own hooks load at startup**, so a plugin installed or updated
   mid-session records nothing further until you restart. Nothing is lost:
   the next sync reads that session's transcript from where recording stopped.

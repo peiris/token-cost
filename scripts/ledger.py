@@ -685,11 +685,8 @@ def aggregate(rows: list[dict], key_fn) -> list[dict]:
         b["tasks"].add((row.get("session"), row.get("turn")))
         for k in TOKEN_KEYS:
             b[k] += row.get(k, 0)
-        # Rows written before ctx existed can still yield it when they hold
-        # exactly one request -- the row's sums then ARE that request.
-        ctx = row.get("ctx") or (input_total(row) if row.get("reqs") == 1 else 0)
-        if ctx > b["ctx"]:
-            b["ctx"] = ctx
+        if (row.get("ctx") or 0) > b["ctx"]:
+            b["ctx"] = row["ctx"]
         if row.get("cost_usd") is None:
             b["cost_known"] = False
         else:
