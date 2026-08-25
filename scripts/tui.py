@@ -72,9 +72,10 @@ if UNICODE:
     RULE, UNDER, VERT = "─", "━", "│"
     CORNERS = "╭╮╰╯"
     T_DOWN, T_UP = "┬", "┴"
+    HALF_DOWN, HALF_UP = "▄", "▀"
     SEP, ELLIPSIS = "│", "…"
     LEFT_ARROW, RIGHT_ARROW = "‹", "›"
-    KEYS = "←/→ tabs · ↑/↓ scroll · r refresh · q quit"
+    KEYS = "←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit"
 else:
     BAR, CAP = "=", "-"
     TRACK = "."
@@ -82,9 +83,10 @@ else:
     RULE, UNDER, VERT = "-", "=", "|"
     CORNERS = "++++"
     T_DOWN, T_UP = "+", "+"
+    HALF_DOWN, HALF_UP = None, None
     SEP, ELLIPSIS = "|", "~"
     LEFT_ARROW, RIGHT_ARROW = "<", ">"
-    KEYS = "left/right tabs - up/down scroll - r refresh - q quit"
+    KEYS = "Left/Right Tabs - Up/Down Scroll - r Refresh - q Quit"
 
 # Colour pairs
 C_ACCENT, C_MUTED, C_HEAD, C_TOTAL = 1, 2, 3, 4
@@ -127,6 +129,16 @@ class Data:
 # --------------------------------------------------------------------------
 # drawing helpers
 # --------------------------------------------------------------------------
+
+def caps(text: str) -> str:
+    """Capitalise each word, leaving the rest of it alone.
+
+    str.title() would flatten anything already capitalised -- a model id or
+    a project name comes back mangled. Only chrome goes through here anyway:
+    panel titles and messages, never a prompt or a figure.
+    """
+    return " ".join(w[:1].upper() + w[1:] if w else w for w in text.split(" "))
+
 
 def fit(text: str, width: int) -> str:
     """Trim to width, marking the cut so a clipped label never reads as
@@ -175,7 +187,7 @@ def panel(sc: Screen, y: int, x: int, w: int, h: int, title: str) -> None:
     if w < 4 or h < 2:
         return
     tl, tr, bl, br = CORNERS
-    head = f"{tl}{RULE} {fit(title, w - 6)} " if title else tl
+    head = f"{tl}{RULE} {fit(caps(title), w - 6)} " if title else tl
     sc.put(y, x, head + RULE * max(0, w - len(head) - 1) + tr, edge)
     for row in range(y + 1, y + h - 1):
         sc.put(row, x, VERT, edge)
@@ -355,7 +367,7 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
 
     panel(sc, y, left, stats_w, stats_h, "Project")
     bx, by, _, _ = inside(left, y, stats_w, stats_h)
-    sc.put(by, bx, f"{data.tasks:,} tasks", accent | curses.A_BOLD)
+    sc.put(by, bx, f"{data.tasks:,} Tasks", accent | curses.A_BOLD)
     sc.put(by + 1, bx, data.span, muted)
     sc.put(by + 2, bx, ledger.fmt_usd(data.cost, data.cost_known),
            accent | curses.A_BOLD)
@@ -367,7 +379,7 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
         mx, my, mw, mh = inside(models_x, models_y, models_w, box_h)
         for i, b in enumerate(models[:mh]):
             cost = ledger.fmt_usd(b["cost"], b["cost_known"])
-            sc.put(my + i, mx, f"{b['key']:<14}{b['tasks']:>6} tasks")
+            sc.put(my + i, mx, f"{b['key']:<14}{b['tasks']:>6} Tasks")
             sc.put(my + i, mx + mw - len(cost), cost, curses.A_BOLD)
     y = (models_y + box_h + 1) if stacked else (y + max(stats_h, box_h) + 1)
 
@@ -420,7 +432,7 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
     if not view.buckets:
         panel(sc, top, left, width, 3, label)
         nx, ny, _, _ = inside(left, top, width, 3)
-        sc.put(ny, nx, f"Nothing recorded in this window ({scope}).",
+        sc.put(ny, nx, caps(f"Nothing recorded in this window ({scope})."),
                curses.color_pair(C_MUTED))
         return 0, 0
 
@@ -458,7 +470,7 @@ def draw_tabs(sc: Screen, tab: int, y: int, left: int, width: int) -> None:
     to see which cell you are in, not hunt for a mark beneath it.
     """
     edge = curses.color_pair(C_ACCENT)
-    labels = [f" {label} " for label, _, _ in TABS]
+    labels = [label for label, _, _ in TABS]
     tl, tr, bl, br = CORNERS
 
     # The strip runs to the right edge, but the leftover is plain rail rather
@@ -476,14 +488,16 @@ def draw_tabs(sc: Screen, tab: int, y: int, left: int, width: int) -> None:
         sc.put(y + 1, x, VERT, edge)
         x += 1
         if i == tab:
-            # The whole cell, border to border. Filling only the text row
-            # leaves the colour floating in the middle of the tab with dark
-            # bands above and below it, which reads as a pill inside a box
-            # rather than as the tab itself being selected.
+            # A border is a line through the middle of its cell; a filled
+            # cell covers the whole of one. Filling the border rows outright
+            # therefore bulges half a cell above and below the strip. Half
+            # blocks stop exactly where the neighbouring rules run, so the
+            # tab meets the frame instead of overflowing it.
             fill = edge | curses.A_REVERSE | curses.A_BOLD
-            sc.put(y, x, " " * len(cell), fill)
+            if HALF_DOWN:
+                sc.put(y, x, HALF_DOWN * len(cell), edge)
+                sc.put(y + 2, x, HALF_UP * len(cell), edge)
             sc.put(y + 1, x, cell, fill)
-            sc.put(y + 2, x, " " * len(cell), fill)
         else:
             sc.put(y + 1, x, cell, curses.color_pair(C_MUTED))
         x += len(cell)
@@ -503,7 +517,7 @@ def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
     sc.put(0, max(2, sc.w - len(right) - 2), right, muted)
 
     left, width = 2, sc.w - 4
-    needed = sum(len(label) + 3 for label, _, _ in TABS) + 1
+    needed = sum(len(label) + 1 for label, _, _ in TABS) + 1
     if needed <= width:
         draw_tabs(sc, tab, 2, left, width)
     else:
@@ -549,8 +563,8 @@ def run(stdscr, cwd: str) -> None:
         stdscr.erase()
         top = draw_chrome(sc, data, tab)
         if not data.rows:
-            sc.put(top, 2, f"No token usage recorded yet for {data.project}.")
-            sc.put(top + 2, 2, "Finish a task and press r.",
+            sc.put(top, 2, f"No Token Usage Recorded Yet For {data.project}.")
+            sc.put(top + 2, 2, "Finish a Task and Press r.",
                    curses.color_pair(C_MUTED))
             capacity = total = 0
         else:

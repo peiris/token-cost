@@ -45,11 +45,11 @@ STEPS = [
     (RIGHT, "Today", "Today"),
     (RIGHT, "This Week", "This Week"),
     (RIGHT, "This Month", "This Month"),
-    (RIGHT, "every task", "every task"),
-    (RIGHT, "sessions", "Sessions"),
-    (RIGHT, "Cost per day", "Overview"),      # wraps back to the start
-    (LEFT, "sessions", "Sessions"),
-    (b"5", "every task", "every task"),
+    (RIGHT, "Every Task", "Every Task"),
+    (RIGHT, "Sessions", "Sessions"),
+    (RIGHT, "Cost Per Day", "Overview"),      # wraps back to the start
+    (LEFT, "Sessions", "Sessions"),
+    (b"5", "Every Task", "Every Task"),
     (DOWN * 5, None, None),
     (UP, None, None),
     (PGDN, None, None),
@@ -57,7 +57,7 @@ STEPS = [
     (b"G", None, None),
     (b"g", None, None),
     (b"r", None, None),
-    (b"1", "Cost per day", "Overview"),
+    (b"1", "Cost Per Day", "Overview"),
 ]
 
 # Ctrl+C. Sent instead of `q` in one pass, because a full-screen app that
