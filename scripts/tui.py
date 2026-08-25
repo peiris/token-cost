@@ -32,7 +32,7 @@ TABS = [
     ("Today", "models", "today"),
     ("This Week", "days", "week"),
     ("This Month", "days", "month"),
-    ("Tasks", "tasks", None),
+    ("All Tasks", "tasks", None),
     ("Sessions", "sessions", None),
 ]
 
@@ -330,9 +330,9 @@ def draw_boxed_table(sc: Screen, view, top: int, left: int, width: int,
 def put_label(sc: Screen, y: int, x: int, text: str, attr: int = 0) -> None:
     """Draw a cell, dimming the aside on an unknown label.
 
-    "Unknown (transcript no longer on disk)" is one name and one
-    explanation; the explanation shouldn't carry the same weight as the
-    prompts it sits among.
+    "Unknown (no prompt on record)" is one name and one explanation; the
+    explanation shouldn't carry the same weight as the prompts it sits
+    among.
     """
     sc.put(y, x, text, attr)
     if text.startswith(views.UNKNOWN + " ("):
@@ -499,6 +499,55 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
     return 0
 
 
+def draw_sessions_summary(sc: Screen, view, top: int, left: int,
+                          width: int, box_h: int) -> None:
+    """The sessions tab's opening panel: the shape of the sessions
+    themselves. Every other tab leads with the model split; repeating it
+    here said nothing the Tasks tab hadn't. What a list of sessions can't
+    show about itself is its aggregate -- how many, how much each carries
+    on average -- and its outliers, which recency ordering buries: the
+    session that cost the most and the one that read the most.
+    """
+    accent = curses.color_pair(C_ACCENT)
+    muted = curses.color_pair(C_MUTED)
+    panel(sc, top, left, width, box_h, "Sessions")
+    x, y, w, h = inside(left, top, width, box_h)
+    buckets = view.buckets
+    if not buckets or h <= 0:
+        return
+
+    n = len(buckets)
+    known = all(b["cost_known"] for b in buckets)
+    avg_cost = sum(b["cost"] for b in buckets) / n
+    priciest = max(buckets, key=lambda b: b["cost"])
+    longest = max(buckets, key=views.total_tokens)
+
+    if h >= 1:
+        mid = f"{view.tasks / n:.1f} Tasks/session"
+        tail = f"avg {ledger.fmt_usd(avg_cost, known)}/session"
+        sc.put(y, x, f"{n:,} Sessions", accent | curses.A_BOLD)
+        sc.put(y, x + w - len(tail), tail, curses.A_BOLD)
+        if w - len(tail) - 3 > 14 + len(mid):
+            sc.put(y, x + w - len(tail) - 3 - len(mid), mid, muted)
+
+    # The two outliers, named like the table below names its rows: when
+    # they started and what they were opened with, figure hard right.
+    figs = [ledger.fmt_usd(priciest["cost"], priciest["cost_known"]),
+            f"{ledger.fmt_tokens(views.total_tokens(longest))} Tokens"]
+    fig_w = max(len(f) for f in figs)
+    room = max(10, w - 9 - 12 - fig_w - 2)
+    for i, (tag, b, fig) in enumerate(
+            (("Priciest", priciest, figs[0]), ("Longest", longest, figs[1]))):
+        if 1 + i >= h:
+            break
+        row = y + 1 + i
+        sc.put(row, x, tag, accent)
+        sc.put(row, x + 9, views.started(b), muted)
+        put_label(sc, row, x + 9 + 12,
+                  views.label_of(b, room, views.UNKNOWN_LONG))
+        sc.put(row, x + w - len(fig), fig, curses.A_BOLD)
+
+
 def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
     """Draw the active tab. Returns (visible rows, total rows) for scrolling."""
     label, mode, period = TABS[tab]
@@ -519,29 +568,41 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
                curses.color_pair(C_MUTED))
         return 0, 0
 
-    # Every tab leads with the same summary: what this window cost, split by
-    # model. On a period tab the rows underneath are its tasks; on the task
-    # and session tabs they are the tab's own table. Either way the top of
-    # the screen answers "how much" before the detail explains "on what".
+    # Each tab leads with a summary of what the table below can't say about
+    # itself. Period and task tabs open with the model split -- "how much"
+    # before "on what". The sessions tab opens with the shape of the
+    # sessions instead: its table already names every session, and the
+    # model split there just repeated the Tasks tab.
+    summary = None
     if mode == "models":
         summary = view
         main = views.build(rows, "tasks", scope, ledger.PROMPT_CAP,
                            unknown=views.UNKNOWN_LONG)
         main_title = f"{len(main.buckets)} Tasks"
+    elif mode == "sessions":
+        main = view
+        main_title = view.subtitle
     else:
         summary = views.build(rows, "models", scope, ledger.PROMPT_CAP)
         main = view
         main_title = view.subtitle
 
-    summary_title = summary.subtitle or "By Model"
-    split_h = box_for(len(summary.buckets) + 3)   # header, rows, rule, total
+    if summary is None:
+        split_h = box_for(3)               # count row plus the two outliers
+    else:
+        summary_title = summary.subtitle or "By Model"
+        split_h = box_for(len(summary.buckets) + 3)  # header, rows, rule, total
 
     if not main.buckets or room < split_h + 8:
         shown = draw_boxed_table(sc, view, top, left, width, room, offset,
                                  view.subtitle)
         return shown, len(view.buckets)
 
-    draw_boxed_table(sc, summary, top, left, width, split_h, 0, summary_title)
+    if summary is None:
+        draw_sessions_summary(sc, view, top, left, width, split_h)
+    else:
+        draw_boxed_table(sc, summary, top, left, width, split_h, 0,
+                         summary_title)
     below = top + split_h + 1
     shown = draw_boxed_table(sc, main, below, left, width,
                              sc.h - below - 1, offset, main_title)
