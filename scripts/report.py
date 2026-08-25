@@ -161,7 +161,24 @@ def launch_block(cwd: str) -> str:
     ])
 
 
+def ensure_command() -> None:
+    """Make sure `token-cost` is on PATH before anyone goes looking for it.
+
+    The SessionStart hook is the normal path, but it can't be the only one:
+    a plugin installed mid-session has no hooks registered until the next
+    start, and hooks can be switched off entirely. Someone running a report
+    is someone who wants this plugin, which is signal enough to install its
+    command. Idempotent and quiet -- a no-op once the file is in place.
+    """
+    try:
+        import install_shim
+        install_shim.install()
+    except Exception:
+        pass  # never let this get between the user and their table
+
+
 def main() -> int:
+    ensure_command()
     args = sys.argv[1:]
     cwd = str(Path.cwd())
     budget = 0

@@ -332,8 +332,10 @@ scrollable, however many there are:
 token-cost
 ```
 
-That's it — there is no install step. The plugin puts the command on your
-PATH when a session starts, and keeps it there.
+That's it — there is no install step. Installing the plugin installs the
+command: it appears on your PATH at the first session start after
+`/plugin install`, which is the same restart the plugin needs anyway. Running
+`/token-cost` puts it there too, so it exists whether or not hooks are on.
 
 `/token-cost ui` opens the UI for you in a new terminal window, pointed at
 the project you're working in. A slash command can't host a full-screen app
@@ -345,7 +347,10 @@ it prints the one command to run instead of doing nothing.
 <summary>What gets installed, and where</summary>
 
 A copy of [`bin/token-cost`](bin/token-cost) is written to `~/.local/bin`
-(or `$XDG_BIN_HOME`) by a `SessionStart` hook. It is a copy rather than a
+(or `$XDG_BIN_HOME`) by a `SessionStart` hook, and again by `/token-cost`
+itself. Nothing can run at the moment you install a plugin — Claude Code has
+no install-time hook, and a plugin's hooks don't exist until it loads — so
+the first session start is the earliest this can happen. It is a copy rather than a
 symlink on purpose: Claude Code caches each plugin version in its own
 directory, so a symlink would point into a directory that the next update
 replaces and eventually prunes. The copy resolves the newest installed
