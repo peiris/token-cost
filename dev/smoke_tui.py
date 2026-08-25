@@ -318,6 +318,30 @@ def sgr(y: int) -> bytes:
     return b"\x1b[<35;12;%dM" % y
 
 
+def sgr_click(x: int, y: int) -> bytes:
+    """An SGR left-button press at one-based terminal coordinates."""
+    return b"\x1b[<0;%d;%dM" % (x, y)
+
+
+def text_position(app: App, text: str):
+    """One-based coordinates in the middle of visible `text`."""
+    for y, line in enumerate(app.screen().splitlines()):
+        if text in line:
+            return line.index(text) + len(text) // 2 + 1, y + 1
+    return None
+
+
+def compact_controls(app: App, place: str):
+    """One-based positions of the compact nav's left and right arrows."""
+    for y, line in enumerate(app.screen().splitlines()):
+        if place not in line:
+            continue
+        occupied = [x for x, char in enumerate(line) if not char.isspace()]
+        if occupied:
+            return (occupied[0] + 1, y + 1), (occupied[-1] + 1, y + 1)
+    return None
+
+
 def resting_row(app: App, report) -> int:
     """A screen row that lights when the pointer comes to rest on it, or 0.
 
@@ -350,6 +374,24 @@ def run_mouse(cwd: str) -> list:
         return ["mouse: never drew a first frame"]
     if "\x1b[?1003h" not in app.raw or "\x1b[?1006h" not in app.raw:
         problems.append("mouse: motion tracking was never switched on")
+
+    # Tab presses take both paths the TUI supports: SGR reports are decoded
+    # by the app on older ncurses, while X10 reports arrive as KEY_MOUSE.
+    today = text_position(app, "Today")
+    if today is None:
+        problems.append("mouse: could not locate Today tab")
+    else:
+        app.send(sgr_click(*today))
+        if not app.wait_for("Today,"):
+            problems.append("mouse: SGR click did not open Today")
+
+    week = text_position(app, "This Week")
+    if week is None:
+        problems.append("mouse: could not locate This Week tab")
+    else:
+        app.send(x10(0, *week) + x10(3, *week))
+        if not app.wait_for("Last 7 Days"):
+            problems.append("mouse: X10 click did not open This Week")
 
     app.send(b"5")                      # two tables on screen to hover over
     app.wait_for("Every Task")
@@ -415,6 +457,40 @@ def run_mouse(cwd: str) -> list:
     return problems
 
 
+def run_compact_mouse(cwd: str) -> list:
+    """The compact nav exposes arrow buttons in place of all six tabs."""
+    problems = []
+    app = App(cwd, 12, 40)
+    if not app.wait_for(TABS_FIRST):
+        app.close()
+        return ["compact mouse: never drew a first frame"]
+
+    controls = compact_controls(app, "1/6")
+    if controls is None:
+        problems.append("compact mouse: could not locate arrow buttons")
+    else:
+        _, right = controls
+        app.send(sgr_click(*right))
+        if not app.wait_for("Today"):
+            problems.append("compact mouse: right arrow did not open Today")
+
+        controls = compact_controls(app, "2/6")
+        if controls is None:
+            problems.append("compact mouse: could not locate updated arrows")
+        else:
+            left, _ = controls
+            app.send(x10(0, *left) + x10(3, *left))
+            if not app.wait_for(TABS_FIRST):
+                problems.append("compact mouse: left arrow did not return")
+
+    status = app.close()
+    if status != 0:
+        problems.append(f"compact mouse: exited {status}, expected 0")
+    if found := broke(app.buffer):
+        problems.append(f"compact mouse: crashed\n{found}")
+    return problems
+
+
 def show(cwd: str, tab: int, rows: int, cols: int) -> None:
     """Print one frame, so a layout can be eyeballed from outside a terminal."""
     app = App(cwd, rows, cols)
@@ -452,6 +528,9 @@ def main() -> int:
     if not empty:                # an empty ledger has no rows to hover
         found = run_mouse(cwd)
         print(f"mouse: {'FAIL' if found else 'ok'}")
+        problems += found
+        found = run_compact_mouse(cwd)
+        print(f"compact mouse: {'FAIL' if found else 'ok'}")
         problems += found
 
     for p in problems:

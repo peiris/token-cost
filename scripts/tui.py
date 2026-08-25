@@ -80,7 +80,7 @@ if UNICODE:
     MARKER = "▌"           # the bar down the left of the selected tab
     SEP, ELLIPSIS = "│", "…"
     LEFT_ARROW, RIGHT_ARROW = "‹", "›"
-    KEYS = "←/→ Tabs · ↑/↓ Scroll · r Refresh · q/Esc Quit"
+    KEYS = "Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q/Esc Quit"
 else:
     BAR, CAP = "=", "-"
     TRACK = "."
@@ -94,7 +94,7 @@ else:
     MARKER = "|"
     SEP, ELLIPSIS = "|", "~"
     LEFT_ARROW, RIGHT_ARROW = "<", ">"
-    KEYS = "Left/Right Tabs - Up/Down Scroll - r Refresh - q/Esc Quit"
+    KEYS = "Click or Left/Right Tabs - Up/Down Scroll - r Refresh - q/Esc Quit"
 
 # Colour pairs
 C_ACCENT, C_MUTED, C_HEAD, C_TOTAL = 1, 2, 3, 4
@@ -299,10 +299,21 @@ class Screen:
         # band lands right after a scroll or a reload with no bookkeeping.
         self.mouse = None
         self.hover = self.hover_muted = curses.A_REVERSE
+        # Rebuilt with the chrome on every frame. Each entry is
+        # (top, left, height, width, destination tab), so mouse input uses
+        # the exact geometry that was drawn, including the compact arrows.
+        self.nav_hits = []
 
     def hovered(self, y: int, x: int, w: int) -> bool:
         return (self.mouse is not None and self.mouse[0] == y
                 and x <= self.mouse[1] < x + w)
+
+    def nav_target(self, y: int, x: int):
+        """The tab selected by a click at screen coordinate (y, x)."""
+        for top, left, height, width, target in self.nav_hits:
+            if top <= y < top + height and left <= x < left + width:
+                return target
+        return None
 
     def measure(self) -> None:
         self.h, self.w = self.s.getmaxyx()
@@ -801,6 +812,7 @@ def draw_nav(sc: Screen, tab: int, row: int, x: int, width: int,
     accent = curses.color_pair(C_ACCENT)
     muted = curses.color_pair(C_MUTED)
     band_top = row if band_top is None else band_top
+    sc.nav_hits = []
 
     # Left-aligned, each name in its own gutter: the marker column plus the
     # room before the text. Every tab reserves that gutter whether or not it
@@ -822,16 +834,26 @@ def draw_nav(sc: Screen, tab: int, row: int, x: int, width: int,
 
     if chosen is None:
         place = f"{tab + 1}/{len(TABS)}"   # too tight to lay out: name this one
-        centred(sc, row, x, width, [
+        parts = [
             (LEFT_ARROW + " ", muted),
             (labels[tab], accent | curses.A_BOLD),
             (f"  {place} ", muted),
             (RIGHT_ARROW, muted),
+        ]
+        span = sum(len(text) for text, _ in parts)
+        at = x + max(0, (width - span) // 2)
+        centred(sc, row, x, width, parts)
+        sc.nav_hits.extend([
+            (row, at, 1, len(parts[0][0]), (tab - 1) % len(TABS)),
+            (row, at + span - len(parts[-1][0]), 1, len(parts[-1][0]),
+             (tab + 1) % len(TABS)),
         ])
         return
 
     at = x
     for i, label in enumerate(chosen):
+        button_width = LABEL_INSET + len(label)
+        sc.nav_hits.append((band_top, at, band_rows, button_width, i))
         if i == tab:
             for line in range(band_top, band_top + band_rows):
                 sc.put(line, at, MARKER, accent)
@@ -1066,6 +1088,10 @@ def run(stdscr, cwd: str) -> None:
                     offset = max(0, offset - 1)
                 elif wheel == 65:
                     offset = min(offset + 1, furthest)
+                elif wheel == 0:
+                    target = sc.nav_target(*sc.mouse)
+                    if target is not None:
+                        tab, offset = target, 0
             else:
                 stdscr.nodelay(True)
                 follower = stdscr.getch()
@@ -1104,12 +1130,21 @@ def run(stdscr, cwd: str) -> None:
             except curses.error:
                 continue
             sc.mouse = (my, mx)
+            left = (curses.BUTTON1_RELEASED
+                    | curses.BUTTON1_PRESSED
+                    | getattr(curses, "BUTTON1_CLICKED", 0)
+                    | getattr(curses, "BUTTON1_DOUBLE_CLICKED", 0)
+                    | getattr(curses, "BUTTON1_TRIPLE_CLICKED", 0))
             # With tracking on, the terminal stops turning the wheel into
             # arrow keys, so the wheel is put back here.
             if state & curses.BUTTON4_PRESSED:
                 offset = max(0, offset - 1)
             elif state & getattr(curses, "BUTTON5_PRESSED", 0):
                 offset = min(offset + 1, furthest)
+            elif state & left:
+                target = sc.nav_target(my, mx)
+                if target is not None:
+                    tab, offset = target, 0
 
 
 def main() -> int:

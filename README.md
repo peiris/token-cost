@@ -301,14 +301,14 @@ show:
   │                                                                                                        │
   ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
-  ←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit
+  Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit
 ```
 
 Tabs: **Overview**, **Today**, **This Week**, **This Month**, **Tasks**,
 **Sessions**. `←`/`→` or `1`–`6` to move between them, `↑`/`↓` and PgUp/PgDn
 to scroll, `g`/`G` for top and bottom, `r` to re-read the ledger, `q` to quit.
-The mouse counts too, in any terminal that reports it moving: the table row
-under the pointer lights up, and the wheel scrolls.
+The mouse counts too: click a tab (or the arrows in the compact nav) to open
+it, point at a table row to light it up, and use the wheel to scroll.
 
 The Tasks tab is the one the conversation can't carry — every task on record,
 scrollable, however many there are:
@@ -337,7 +337,7 @@ scrollable, however many there are:
   │  TOTAL                                                          393   81.4k    21.8M   474.4k  $16.14  │
   │                                                                                                        │
   ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-  ←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit
+  Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit
 ```
 
 ### Starting it
