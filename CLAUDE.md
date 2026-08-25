@@ -29,6 +29,19 @@ Code's own transcript format (e.g. `is_human_prompt()`'s field fallbacks).
 Those files are input we read but don't control, and old ones legitimately
 sit on disk.
 
+## Publishing ends at the local install, not at the push
+
+The author's own Claude Code runs the installed plugin, not this
+checkout, so a release the local install never received changed nothing.
+
+- Publish = bump the plugin version, commit, push, then
+  `claude plugin update token-cost@token-cost` — the bare name doesn't
+  resolve; the `@token-cost` marketplace suffix is required — and a
+  Claude Code restart to apply.
+- Push before updating: the marketplace pulls from GitHub, not from this
+  directory. And without a version bump there is nothing for it to pull
+  — the cache is keyed by the version string.
+
 ## Never discard another agent's work in the working tree
 
 More than one Claude session often works in this checkout at once. Treat
