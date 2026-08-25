@@ -398,6 +398,7 @@ class Screen:
         # (top, left, height, width, destination tab), so mouse input uses
         # the exact geometry that was drawn, including the compact arrows.
         self.nav_hits = []
+        self.search_hit = None
 
     def hovered(self, y: int, x: int, w: int) -> bool:
         return (self.mouse is not None and self.mouse[0] == y
@@ -409,6 +410,13 @@ class Screen:
             if top <= y < top + height and left <= x < left + width:
                 return target
         return None
+
+    def search_target(self, y: int, x: int):
+        """The searchable tab whose input contains (y, x), if any."""
+        if self.search_hit is None:
+            return None
+        tab, row, left, width = self.search_hit
+        return tab if y == row and left <= x < left + width else None
 
     def measure(self) -> None:
         self.h, self.w = self.s.getmaxyx()
@@ -594,15 +602,59 @@ def rendered(view) -> Rendered:
     return view.render
 
 
+def draw_search_input(sc: Screen, search: Search, tab: int, y: int, x: int,
+                      width: int) -> None:
+    """A persistent search input inside a task or session table."""
+    accent = curses.color_pair(C_ACCENT)
+    muted = curses.color_pair(C_MUTED)
+    label = "SEARCH"
+    field_x = x + len(label) + GAP
+    field_w = max(0, width - len(label) - GAP)
+    query = search.query(tab)
+
+    sc.put(y, x, label, accent | curses.A_BOLD)
+    sc.search_hit = (tab, y, x, width)
+    if search.editing == tab:
+        value = query + MARKER
+        if len(value) > field_w:
+            value = (ELLIPSIS + value[-(field_w - 1):]
+                     if field_w > 1 else ELLIPSIS[:field_w])
+        sc.put(y, field_x, value, curses.A_BOLD)
+        if not query:
+            sc.put(y, field_x + 2, fit("Type a name to filter", field_w - 2),
+                   muted)
+    elif query:
+        shown = fit(query, field_w)
+        sc.put(y, field_x, shown, curses.A_BOLD)
+        hint_x = field_x + len(shown) + 2
+        if hint_x + len("Esc clears") <= field_x + field_w:
+            sc.put(y, hint_x, "Esc clears", muted)
+    else:
+        noun = SEARCHABLE[tab].lower()
+        placeholder = f"Press / or click, then type to filter {noun}"
+        sc.put(y, field_x, fit(placeholder, field_w), muted)
+    sc.put(y + 1, x, RULE * min(width, sc.w - x), accent)
+
+
 def draw_boxed_table(sc: Screen, view, top: int, left: int, width: int,
-                     height: int, offset: int, title: str) -> int:
+                     height: int, offset: int, title: str,
+                     search: Search = None, search_tab: int = None) -> int:
     """A table inside its own titled panel, filling the width it is given.
     Returns the body's row capacity."""
+    has_search = search is not None and search_tab in SEARCHABLE
     if height < 6:                       # box, header, rule, total, one row
+        if has_search and height > 2:
+            draw_search_input(sc, search, search_tab, top, left, width)
+            return draw_table(sc, view, top + 2, left, width, height - 2,
+                              offset)
         return draw_table(sc, view, top, left, width, height, offset)
     panel(sc, top, left, width, height, title)
-    # Four: a header, one row worth showing, the rule and the total.
-    x, y, w, h = inside(left, top, width, height, min_content=4)
+    # Search needs two rows before the table's header, body, rule and total.
+    minimum = 6 if has_search else 4
+    x, y, w, h = inside(left, top, width, height, min_content=minimum)
+    if has_search:
+        draw_search_input(sc, search, search_tab, y, x, w)
+        y, h = y + 2, h - 2
     return draw_table(sc, view, y, x, w, h, offset)
 
 
@@ -841,26 +893,32 @@ def draw_sessions_summary(sc: Screen, view, top: int, left: int,
 
 
 def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int,
-             query: str = ""):
+             search: Search = None):
     """Draw the active tab. Returns (visible rows, total rows) for scrolling."""
     label, mode, _ = TABS[tab]
     if mode == "overview":
         return draw_overview(sc, data, top, offset), 0
 
+    query = search.query(tab) if search is not None else ""
     built = data.tab(tab, query)
     view, summary, main = built.view, built.summary, built.main
     left, width = 2, sc.w - 4
     room = sc.h - top - 1
 
     if not view.buckets:
-        panel(sc, top, left, width, box_for(1), label)
-        nx, ny, _, _ = inside(left, top, width, box_for(1))
         if built.query:
+            height = min(room, box_for(3))
+            panel(sc, top, left, width, height, label)
+            nx, ny, nw, _ = inside(left, top, width, height, min_content=3)
+            draw_search_input(sc, search, tab, ny, nx, nw)
             message = f'No {SEARCHABLE[tab].lower()} match "{built.query}".'
+            sc.put(ny + 2, nx, message, curses.color_pair(C_MUTED))
         else:
+            panel(sc, top, left, width, box_for(1), label)
+            nx, ny, _, _ = inside(left, top, width, box_for(1))
             message = caps(
                 f"Nothing recorded in this window ({built.scope}).")
-        sc.put(ny, nx, message, curses.color_pair(C_MUTED))
+            sc.put(ny, nx, message, curses.color_pair(C_MUTED))
         return 0, 0
 
     if summary is None:
@@ -868,9 +926,10 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int,
     else:
         split_h = box_for(len(summary.buckets) + 3)  # header, rows, rule, total
 
-    if not main.buckets or room < split_h + 8:
+    searchable = tab in SEARCHABLE and search is not None
+    if not main.buckets or room < split_h + (10 if searchable else 8):
         shown = draw_boxed_table(sc, view, top, left, width, room, offset,
-                                 view.subtitle)
+                                 view.subtitle, search, tab)
         return shown, len(view.buckets)
 
     if summary is None:
@@ -880,7 +939,8 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int,
                          built.summary_title)
     below = top + split_h + 1
     shown = draw_boxed_table(sc, main, below, left, width,
-                             sc.h - below - 1, offset, built.main_title)
+                             sc.h - below - 1, offset, built.main_title,
+                             search, tab)
     return shown, len(main.buckets)
 
 
@@ -1144,6 +1204,7 @@ def run(stdscr, cwd: str) -> None:
         if time.monotonic() - painted >= FRAME or not queued(stdscr):
             sc.measure()
             stdscr.erase()
+            sc.search_hit = None
             top = draw_chrome(sc, data, tab, search)
             if not data.rows:
                 sc.put(top, 2,
@@ -1152,8 +1213,7 @@ def run(stdscr, cwd: str) -> None:
                        curses.color_pair(C_MUTED))
                 capacity = total = 0
             else:
-                capacity, total = draw_tab(
-                    sc, data, tab, top, offset, search.query(tab))
+                capacity, total = draw_tab(sc, data, tab, top, offset, search)
 
             # The last row belongs at the bottom of the box, not somewhere in
             # the middle with empty space under it. If a resize or a reload
@@ -1213,6 +1273,9 @@ def run(stdscr, cwd: str) -> None:
                     if target is not None:
                         search.commit()
                         tab, offset = target, 0
+                    elif sc.search_target(*sc.mouse) == tab:
+                        search.begin(tab)
+                        offset = 0
             else:
                 stdscr.nodelay(True)
                 follower = stdscr.getch()
@@ -1282,6 +1345,9 @@ def run(stdscr, cwd: str) -> None:
                 if target is not None:
                     search.commit()
                     tab, offset = target, 0
+                elif sc.search_target(my, mx) == tab:
+                    search.begin(tab)
+                    offset = 0
 
 
 def main() -> int:

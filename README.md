@@ -307,9 +307,9 @@ show:
 Tabs: **Overview**, **Today**, **This Week**, **This Month**, **All Tasks**,
 **Sessions**. `←`/`→` or `1`–`6` to move between them, `↑`/`↓` and PgUp/PgDn
 to scroll, `g`/`G` for top and bottom, `r` to re-read the ledger, `q` to quit.
-On **All Tasks** and **Sessions**, `/` opens a case-insensitive name search;
-typing filters the table live, Enter keeps the filter, and Esc cancels an edit
-or clears an applied filter.
+**All Tasks** and **Sessions** each have a search input inside the table. Click
+it or press `/` to focus it; typing filters names live, Enter keeps the filter,
+and Esc cancels an edit or clears an applied filter.
 The mouse counts too: click a tab (or the arrows in the compact nav) to open
 it, point at a table row to light it up, and use the wheel to scroll.
 
@@ -327,6 +327,8 @@ scrollable, however many there are:
 
   ╭─ Every Task ───────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                        │
+  │  SEARCH  Press / or click, then type to filter tasks                                                   │
+  │  ────────────────────────────────────────────────────────────────────────────────────────────────────  │
   │  WHEN         TASK                                 MODEL      INPUT  OUTPUT  CACHE R  CACHE W  EST. $  │
   │  08-25 10:41  /token-cost tasks                    opus-5         1     189    26.2k     3.5k   $0.05  │
   │  08-25 10:22  Add a per-task breakdown to the re…  opus-5        33    4.6k   951.2k    26.4k   $0.85  │

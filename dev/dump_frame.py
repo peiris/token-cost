@@ -39,7 +39,7 @@ def capture(stdscr, cwd: str, tab: int) -> list:
         stdscr.erase()
         top = tui.draw_chrome(screen, data, step, search)
         if data.rows:
-            tui.draw_tab(screen, data, step, top, 0)
+            tui.draw_tab(screen, data, step, top, 0, search)
         else:
             screen.put(top, 2, f"No token usage recorded yet for {data.project}.")
             screen.put(top + 2, 2, "Finish a task and press r.")

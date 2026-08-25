@@ -538,7 +538,22 @@ def run_search(cwd: str) -> list:
 
         app.send(key)
         app.read(0.3)
-        app.send(b"/" + typed.encode("ascii"))
+        if ("SEARCH" not in app.screen()
+                or "Press / or click" not in app.screen()):
+            problems.append(f"search: {mode} input is not visible in the table")
+
+        if mode == "tasks":
+            field = text_position(app, "Press / or click")
+            if field is None:
+                problems.append("search: could not locate task search input")
+                continue
+            app.send(sgr_click(*field))
+            if not app.wait_for("Enter Apply"):
+                problems.append("search: clicking task input did not focus it")
+                continue
+            app.send(typed.encode("ascii"))
+        else:
+            app.send(b"/" + typed.encode("ascii"))
         if not app.wait_for(title):
             problems.append(f"search: {mode} query did not narrow to {title}")
             continue

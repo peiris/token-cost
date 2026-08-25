@@ -122,7 +122,7 @@ def child(cwd: str, frames: int, out_path: str, root: str | None) -> None:
             sc.measure()
             stdscr.erase()
             top = tui.draw_chrome(sc, data, tab, search)
-            tui.draw_tab(sc, data, tab, top, 0)
+            tui.draw_tab(sc, data, tab, top, 0, search)
             stdscr.refresh()
             return time.perf_counter()
 
