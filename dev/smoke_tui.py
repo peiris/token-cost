@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 
 TUI = Path(__file__).resolve().parent.parent / "scripts" / "tui.py"
+TABS_FIRST = "Overview"
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b[()][A-B0-9]|\x1b[=>]|\r")
 
 # Arrow keys in *application* cursor mode (ESC O x), which is what a terminal
@@ -239,7 +240,10 @@ def run_size(cwd: str, rows: int, cols: int, empty=False) -> list:
     problems = []
     cramped = rows < 20 or cols < 70
     app = App(cwd, rows, cols)
-    if not app.wait_for("token-cost"):
+    # The first tab's name, not the app's: the masthead is wording someone
+    # may well change, while a tab has to be on screen for the UI to work
+    # at all -- in the full nav, the compact indicator, or the slim line.
+    if not app.wait_for(TABS_FIRST):
         problems.append(f"{rows}x{cols}: never drew a first frame")
         app.close()
         return problems
@@ -285,7 +289,7 @@ def run_size(cwd: str, rows: int, cols: int, empty=False) -> list:
 
     # And again, leaving by Ctrl+C rather than by q.
     app = App(cwd, rows, cols)
-    if app.wait_for("token-cost"):
+    if app.wait_for(TABS_FIRST):
         app.send(INTERRUPT)
         time.sleep(0.6)
         status = app.close()
@@ -301,7 +305,7 @@ def run_size(cwd: str, rows: int, cols: int, empty=False) -> list:
 def show(cwd: str, tab: int, rows: int, cols: int) -> None:
     """Print one frame, so a layout can be eyeballed from outside a terminal."""
     app = App(cwd, rows, cols)
-    app.wait_for("token-cost")
+    app.wait_for(TABS_FIRST)
     if tab:
         app.send(str(tab + 1).encode())
         app.read(1.2)

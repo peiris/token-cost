@@ -272,7 +272,7 @@ show:
 ```
   ╭────────────────────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                        │
-  │                             ▂▄▆█  Claude Token Cost v0.8.2  ·  token-cost                              │
+  │                             ▂▄▆█  Claude Token Cost v0.8.3  ·  token-cost                              │
   │                                                                                                        │
   │                    ▐ Overview ▌  Today   This Week   This Month   Tasks   Sessions                     │
   │                                                                                                        │
@@ -312,7 +312,7 @@ scrollable, however many there are:
 ```
   ╭────────────────────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                        │
-  │                             ▂▄▆█  Claude Token Cost v0.8.2  ·  token-cost                              │
+  │                             ▂▄▆█  Claude Token Cost v0.8.3  ·  token-cost                              │
   │                                                                                                        │
   │                     Overview   Today   This Week   This Month  ▐ Tasks ▌  Sessions                     │
   │                                                                                                        │
