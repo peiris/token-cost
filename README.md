@@ -307,6 +307,8 @@ show:
 Tabs: **Overview**, **Today**, **This Week**, **This Month**, **Tasks**,
 **Sessions**. `←`/`→` or `1`–`6` to move between them, `↑`/`↓` and PgUp/PgDn
 to scroll, `g`/`G` for top and bottom, `r` to re-read the ledger, `q` to quit.
+The mouse counts too, in any terminal that reports it moving: the table row
+under the pointer lights up, and the wheel scrolls.
 
 The Tasks tab is the one the conversation can't carry — every task on record,
 scrollable, however many there are:

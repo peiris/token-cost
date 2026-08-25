@@ -97,6 +97,7 @@ else:
 
 # Colour pairs
 C_ACCENT, C_MUTED, C_HEAD, C_TOTAL = 1, 2, 3, 4
+C_HOVER, C_HOVER_MUTED = 5, 6
 
 
 # --------------------------------------------------------------------------
@@ -177,6 +178,15 @@ class Screen:
     def __init__(self, stdscr):
         self.s = stdscr
         self.h, self.w = stdscr.getmaxyx()
+        # Where the pointer last was, or None until it first moves. Only the
+        # draw pass looks at it: nothing remembers which row is lit, so the
+        # band lands right after a scroll or a reload with no bookkeeping.
+        self.mouse = None
+        self.hover = self.hover_muted = curses.A_REVERSE
+
+    def hovered(self, y: int, x: int, w: int) -> bool:
+        return (self.mouse is not None and self.mouse[0] == y
+                and x <= self.mouse[1] < x + w)
 
     def measure(self) -> None:
         self.h, self.w = self.s.getmaxyx()
@@ -337,7 +347,9 @@ def put_label(sc: Screen, y: int, x: int, text: str, attr: int = 0) -> None:
     sc.put(y, x, text, attr)
     if text.startswith(views.UNKNOWN + " ("):
         head = len(views.UNKNOWN)
-        sc.put(y, x + head, text[head:], curses.color_pair(C_MUTED))
+        muted = (sc.hover_muted if attr == sc.hover
+                 else curses.color_pair(C_MUTED))
+        sc.put(y, x + head, text[head:], muted)
 
 
 def draw_row(sc: Screen, y: int, x: int, cells, widths, aligns, attr=0,
@@ -377,8 +389,15 @@ def draw_table(sc: Screen, view, top: int, left: int, width: int, height: int,
         index = offset + i
         if index >= len(cells):
             break
-        draw_row(sc, top + 1 + i, left, cells[index], widths, aligns,
-                 0, limit)
+        y = top + 1 + i
+        attr = 0
+        if sc.hovered(y, left, width):
+            # The band first, then the cells over it: the gaps between
+            # columns belong to the highlight too, or the row lights up
+            # in stripes.
+            attr = sc.hover
+            sc.put(y, left, " " * width, attr)
+        draw_row(sc, y, left, cells[index], widths, aligns, attr, limit)
 
     sc.put(rule_y, left, RULE * min(sum(widths) + GAP * (len(widths) - 1),
                                     width, sc.w - left),
@@ -719,6 +738,47 @@ def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
     return joint + nav + 1
 
 
+def mouse_report(stdscr):
+    """(code, column, row) of the SGR mouse report whose Esc getch() just
+    returned, or None.
+
+    An ncurses new enough to know the SGR mouse protocol hands reports over
+    as KEY_MOUSE and this is never reached. The one Apple ships is not:
+    there, every report leaks through getch() as loose bytes behind an Esc,
+    and has to be reassembled. Whatever turns out to be something else is
+    pushed back for the loop to read normally.
+    """
+    seen = []
+    stdscr.timeout(25)       # the rest of a report is already in flight
+    try:
+        def take():
+            ch = stdscr.getch()
+            if ch != -1:
+                seen.append(ch)
+            return ch
+
+        if take() != ord("[") or take() != ord("<"):
+            raise ValueError
+        fields, digits = [], ""
+        while True:
+            ch = take()
+            if 48 <= ch <= 57 and len(digits) < 5:      # 0-9
+                digits += chr(ch)
+            elif ch == ord(";") and len(fields) < 2:
+                fields.append(int(digits or "0"))
+                digits = ""
+            elif ch in (ord("M"), ord("m")) and len(fields) == 2:
+                return fields[0], fields[1], int(digits or "0")
+            else:
+                raise ValueError
+    except ValueError:
+        for ch in reversed(seen):
+            curses.ungetch(ch)
+        return None
+    finally:
+        stdscr.timeout(-1)
+
+
 def run(stdscr, cwd: str) -> None:
     curses.curs_set(0)
     stdscr.keypad(True)
@@ -738,9 +798,33 @@ def run(stdscr, cwd: str) -> None:
         curses.init_pair(C_MUTED, grey, -1)
         curses.init_pair(C_HEAD, warm, -1)
         curses.init_pair(C_TOTAL, warm, -1)
+        if curses.COLORS >= 256:
+            # The hovered row names both of its colours: on a light theme
+            # the default foreground is near-black and would sink into the
+            # dark band if the pair inherited it. Under 256 colours there
+            # is no quiet grey to be had, and Screen's A_REVERSE stands in.
+            curses.init_pair(C_HOVER, 253, 237)
+            curses.init_pair(C_HOVER_MUTED, 245, 237)
+
+    # Hover needs the terminal streaming pointer positions, which is more
+    # than ncurses ever asks for: mousemask() requests clicks (xterm mode
+    # 1000). Any-motion tracking is mode 1003, and SGR encoding is 1006 --
+    # without that, wheel-down on a mouse-v1 ncurses collapses into a bare
+    # position report, and coordinates stop at column 223. Both are set by
+    # hand, after mousemask so its own enable string can't knock the
+    # terminal back to click-only. A terminal that can't track motion sends
+    # nothing, and the highlight simply waits for a click.
+    if curses.mousemask(curses.ALL_MOUSE_EVENTS
+                        | curses.REPORT_MOUSE_POSITION)[0]:
+        curses.mouseinterval(0)   # a wheel tick must not wait out a click test
+        sys.stdout.write("\x1b[?1003h\x1b[?1006h")
+        sys.stdout.flush()
 
     data = Data(cwd)
     sc = Screen(stdscr)
+    if curses.has_colors() and curses.COLORS >= 256:
+        sc.hover = curses.color_pair(C_HOVER)
+        sc.hover_muted = curses.color_pair(C_HOVER_MUTED)
     tab, offset = 0, 0
 
     while True:
@@ -777,18 +861,29 @@ def run(stdscr, cwd: str) -> None:
             return
         elif key == 27:
             # Esc quits -- but 27 is also the first byte of every arrow and
-            # function key, and curses hands it over bare whenever the rest
-            # of the sequence isn't in its keymap. The tell is what follows:
-            # a sequence's remaining bytes are already waiting, a real Esc
-            # is followed by silence. So peek without blocking, and swallow
-            # the sequence rather than quit over an exotic arrow key.
-            stdscr.nodelay(True)
-            follower = stdscr.getch()
-            while stdscr.getch() != -1:
-                pass
-            stdscr.nodelay(False)
-            if follower == -1:
-                return
+            # function key, and of every mouse report an old ncurses can't
+            # parse. The tell is what follows: a sequence's remaining bytes
+            # are already waiting, a real Esc is followed by silence. So
+            # read a mouse report if one is there; failing that, swallow
+            # the sequence rather than quit over an exotic arrow key, and
+            # quit only on silence.
+            report = mouse_report(stdscr)
+            if report:
+                code, mx, my = report
+                sc.mouse = (my - 1, mx - 1)   # reports count from one
+                wheel = code & ~28            # shift/alt/ctrl, shrugged off
+                if wheel == 64:
+                    offset = max(0, offset - 1)
+                elif wheel == 65:
+                    offset = min(offset + 1, furthest)
+            else:
+                stdscr.nodelay(True)
+                follower = stdscr.getch()
+                while stdscr.getch() != -1:
+                    pass
+                stdscr.nodelay(False)
+                if follower == -1:
+                    return
         elif key in (curses.KEY_RIGHT, ord("\t"), ord("l")):
             tab, offset = (tab + 1) % len(TABS), 0
         elif key in (curses.KEY_LEFT, curses.KEY_BTAB, ord("h")):
@@ -810,6 +905,21 @@ def run(stdscr, cwd: str) -> None:
         elif key in (ord("r"), ord("R")):
             data.reload()
             offset = 0
+        elif key == curses.KEY_MOUSE:
+            # An ncurses that parses reports itself. BUTTON5 only exists on
+            # a mouse-v2 build; where the constant is missing, wheel-down is
+            # arriving through mouse_report() instead.
+            try:
+                _, mx, my, _, state = curses.getmouse()
+            except curses.error:
+                continue
+            sc.mouse = (my, mx)
+            # With tracking on, the terminal stops turning the wheel into
+            # arrow keys, so the wheel is put back here.
+            if state & curses.BUTTON4_PRESSED:
+                offset = max(0, offset - 1)
+            elif state & getattr(curses, "BUTTON5_PRESSED", 0):
+                offset = min(offset + 1, furthest)
 
 
 def main() -> int:
@@ -825,6 +935,12 @@ def main() -> int:
         curses.wrapper(run, cwd)
     except KeyboardInterrupt:
         pass  # interrupted somewhere other than the keyboard read
+    finally:
+        # endwin unwinds what ncurses switched on, not what run() did. Leave
+        # these modes behind and the shell gets escape codes sprayed at it
+        # for every twitch of the mouse.
+        sys.stdout.write("\x1b[?1003l\x1b[?1006l")
+        sys.stdout.flush()
     return 0
 
 

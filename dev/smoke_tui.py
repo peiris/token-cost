@@ -302,6 +302,89 @@ def run_size(cwd: str, rows: int, cols: int, empty=False) -> list:
     return problems
 
 
+# The band under the hovered row, by its colours: background 237 is used by
+# nothing else the UI paints, so its appearance on the wire is the hover
+# working, and nothing else is.
+HOVER_BG = "48;5;237"
+
+
+def x10(code: int, x: int, y: int) -> bytes:
+    """An X10-encoded mouse report: three bytes, everything offset by 32."""
+    return b"\x1b[M" + bytes([32 + code, 32 + x, 32 + y])
+
+
+def run_mouse(cwd: str) -> list:
+    """Hover and wheel, in both encodings a terminal might use.
+
+    SGR reports are what any terminal of this decade sends once the app asks
+    for them; on Apple's ncurses they reach the input loop as loose bytes,
+    which is the path this exercises. X10 is the older encoding, the one
+    ncurses parses itself and hands over as KEY_MOUSE. A row has to light
+    under either.
+    """
+    problems = []
+    app = App(cwd, 40, 140)
+    if not app.wait_for(TABS_FIRST):
+        app.close()
+        return ["mouse: never drew a first frame"]
+    if "\x1b[?1003h" not in app.raw or "\x1b[?1006h" not in app.raw:
+        problems.append("mouse: motion tracking was never switched on")
+
+    app.send(b"5")                      # two tables on screen to hover over
+    app.wait_for("Every Task")
+    seen = app.raw.count(HOVER_BG)
+    for y in range(6, 38):              # sweep a column: some land on rows
+        app.send(b"\x1b[<35;12;%dM" % y)
+    app.read(1.0)
+    if app.raw.count(HOVER_BG) <= seen:
+        problems.append("mouse: SGR motion lit no row")
+
+    seen = app.raw.count(HOVER_BG)
+    for y in range(6, 38):
+        app.send(x10(35, 12, y))        # 32 for motion, 3 for no button
+    app.read(1.0)
+    if app.raw.count(HOVER_BG) <= seen:
+        problems.append("mouse: X10 motion lit no row")
+
+    for _ in range(4):                  # wheel: SGR both ways, X10 up
+        app.send(b"\x1b[<65;12;20M" + b"\x1b[<64;12;20M" + x10(64, 12, 20))
+    app.read(0.6)
+    if not app.alive():
+        problems.append("mouse: died on wheel events")
+
+    # A CSI arrow -- Esc-led, but no mouse report -- must fall through
+    # mouse_report() into the swallow, not the quit.
+    app.send(b"\x1b[C")
+    app.read(0.4)
+    if not app.alive():
+        problems.append("mouse: a CSI arrow quit the app")
+
+    # A bare Esc must still quit: mouse_report() waits out its 25ms, finds
+    # nothing, and hands the silence back to the quit check.
+    app.send(b"\x1b")
+    ended = None
+    deadline = time.time() + 3.0
+    while time.time() < deadline:
+        pid, status = os.waitpid(app.pid, os.WNOHANG)
+        if pid:
+            ended = os.waitstatus_to_exitcode(status)
+            break
+        app.read(0.1)
+    app.read(0.3)                       # the shutdown's own bytes
+    if ended is None:
+        problems.append("mouse: bare Esc no longer quits")
+        os.kill(app.pid, signal.SIGKILL)
+        os.waitpid(app.pid, 0)
+    elif ended != 0:
+        problems.append(f"mouse: Esc exited {ended}, expected 0")
+    app._shut()
+    if "\x1b[?1003l" not in app.raw or "\x1b[?1006l" not in app.raw:
+        problems.append("mouse: tracking left switched on at exit")
+    if found := broke(app.buffer):
+        problems.append(f"mouse: crashed\n{found}")
+    return problems
+
+
 def show(cwd: str, tab: int, rows: int, cols: int) -> None:
     """Print one frame, so a layout can be eyeballed from outside a terminal."""
     app = App(cwd, rows, cols)
@@ -334,6 +417,11 @@ def main() -> int:
     for size in ((40, 140), (12, 40), (60, 200)):
         found = run_size(cwd, *size, empty=empty)
         print(f"{size[0]}x{size[1]}: {'FAIL' if found else 'ok'}")
+        problems += found
+
+    if not empty:                # an empty ledger has no rows to hover
+        found = run_mouse(cwd)
+        print(f"mouse: {'FAIL' if found else 'ok'}")
         problems += found
 
     for p in problems:
