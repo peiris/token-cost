@@ -272,9 +272,9 @@ show:
 ```
   token-cost                                                                                      token-cost
 
-  Overview │ Today │ This Week │ This Month │ Tasks │ Sessions
-  ━━━━━━━━
-
+  ╭──────────┬───────┬───────────┬────────────┬───────┬────────────────────────────────────────────────────╮
+  │ Overview │ Today │ This Week │ This Month │ Tasks │ Sessions                                           │
+  ╰──────────┴───────┴───────────┴────────────┴───────┴────────────────────────────────────────────────────╯
   ╭─ Project ───────────────────────╮  ╭─ Models ──────────────────────────────────────────────────────────╮
   │ 16 tasks                        │  │ opus-5            16 tasks                                 $15.85 │
   │ 2026-08-23 → 2026-08-25         │  │ haiku-4-5          3 tasks                                  $0.29 │
@@ -308,9 +308,9 @@ scrollable, however many there are:
 ```
   token-cost                                                                                      token-cost
 
-  Overview │ Today │ This Week │ This Month │ Tasks │ Sessions
-                                              ━━━━━
-
+  ╭──────────┬───────┬───────────┬────────────┬───────┬────────────────────────────────────────────────────╮
+  │ Overview │ Today │ This Week │ This Month │ Tasks │ Sessions                                           │
+  ╰──────────┴───────┴───────────┴────────────┴───────┴────────────────────────────────────────────────────╯
   ╭─ every task ───────────────────────────────────────────────────────────────────────────────────────────╮
   │ WHEN         TASK                                   MODEL      INPUT  OUTPUT  CACHE R  CACHE W  EST. $ │
   │ 08-25 10:41  /token-cost tasks                      opus-5         1     189    26.2k     3.5k   $0.05 │

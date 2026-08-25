@@ -71,6 +71,7 @@ if UNICODE:
     LEFT_EDGE, RIGHT_EDGE = "▕", "▏"
     RULE, UNDER, VERT = "─", "━", "│"
     CORNERS = "╭╮╰╯"
+    T_DOWN, T_UP = "┬", "┴"
     SEP, ELLIPSIS = "│", "…"
     LEFT_ARROW, RIGHT_ARROW = "‹", "›"
     KEYS = "←/→ tabs · ↑/↓ scroll · r refresh · q quit"
@@ -80,6 +81,7 @@ else:
     LEFT_EDGE, RIGHT_EDGE = "[", "]"
     RULE, UNDER, VERT = "-", "=", "|"
     CORNERS = "++++"
+    T_DOWN, T_UP = "+", "+"
     SEP, ELLIPSIS = "|", "~"
     LEFT_ARROW, RIGHT_ARROW = "<", ">"
     KEYS = "left/right tabs - up/down scroll - r refresh - q quit"
@@ -247,7 +249,8 @@ def layout(columns, buckets, width, overrides):
 
 def draw_boxed_table(sc: Screen, view, top: int, left: int, width: int,
                      height: int, offset: int, title: str) -> int:
-    """A table inside its own titled panel, filling the width it is given."""
+    """A table inside its own titled panel, filling the width it is given.
+    Returns the body's row capacity."""
     if height < 6:                       # box, header, rule, total, one row
         return draw_table(sc, view, top, left, width, height, offset)
     panel(sc, top, left, width, height, title)
@@ -270,7 +273,8 @@ def draw_row(sc: Screen, y: int, x: int, cells, widths, aligns, attr=0,
 
 def draw_table(sc: Screen, view, top: int, left: int, width: int, height: int,
                offset: int) -> int:
-    """Draw a scrolled table. Returns how many body rows were visible."""
+    """Draw a scrolled table. Returns how many rows the body can hold, which
+    is what bounds scrolling -- see the clamp in run()."""
     cols, widths, cells, total = layout(
         view.columns, view.buckets, width, view.overrides)
     aligns = [c[1] for c in cols]
@@ -279,23 +283,25 @@ def draw_table(sc: Screen, view, top: int, left: int, width: int, height: int,
     draw_row(sc, top, left, [c[0] for c in cols], widths, aligns,
              curses.color_pair(C_HEAD) | curses.A_BOLD, limit)
 
-    body = height - 3            # header, rule, total
-    shown = 0
+    # The footer is pinned to the bottom of the space this table was given,
+    # not floated under the last row that happened to fit. A total that
+    # walks up the screen as you scroll is hard to read and harder to trust.
+    body = max(0, height - 3)    # header, rule, total
+    rule_y = top + height - 2
+
     for i in range(body):
         index = offset + i
         if index >= len(cells):
             break
         draw_row(sc, top + 1 + i, left, cells[index], widths, aligns,
                  0, limit)
-        shown += 1
 
-    rule_y = top + 1 + min(body, max(shown, 0))
     sc.put(rule_y, left, RULE * min(sum(widths) + GAP * (len(widths) - 1),
                                     width, sc.w - left),
            curses.color_pair(C_MUTED))
     draw_row(sc, rule_y + 1, left, total, widths, aligns,
              curses.color_pair(C_TOTAL) | curses.A_BOLD, limit)
-    return shown
+    return body
 
 
 # --------------------------------------------------------------------------
@@ -418,39 +424,62 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
 # chrome
 # --------------------------------------------------------------------------
 
+def draw_tabs(sc: Screen, tab: int, y: int, left: int, width: int) -> None:
+    """The tab strip: one cell per tab, in a box, across the full width.
+
+    The active tab is filled rather than underlined -- at a glance you want
+    to see which cell you are in, not hunt for a mark beneath it.
+    """
+    edge = curses.color_pair(C_ACCENT)
+    labels = [f" {label} " for label, _, _ in TABS]
+    tl, tr, bl, br = CORNERS
+
+    # The strip runs to the right edge, but the leftover is plain rail rather
+    # than another cell: a divider there would read as an empty seventh tab.
+    spare = max(0, width - (sum(len(c) for c in labels) + len(labels) + 1))
+
+    rail = RULE * spare
+    sc.put(y, left, tl + T_DOWN.join(RULE * len(c) for c in labels)
+           + rail + tr, edge)
+    sc.put(y + 2, left, bl + T_UP.join(RULE * len(c) for c in labels)
+           + rail + br, edge)
+
+    x = left
+    for i, cell in enumerate(labels):
+        sc.put(y + 1, x, VERT, edge)
+        x += 1
+        sc.put(y + 1, x, cell,
+               edge | curses.A_REVERSE | curses.A_BOLD if i == tab
+               else curses.color_pair(C_MUTED))
+        x += len(cell)
+    # No divider after the last tab: the borders have no junction there, and
+    # one here would hang in mid-air over plain rail.
+    sc.put(y + 1, x, " " * spare)
+    sc.put(y + 1, left + width - 1, VERT, edge)
+
+
 def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
-    """Title, tab bar and footer. Returns the first body row."""
+    """Title and tab strip. Returns the first row the tab body may use."""
     accent = curses.color_pair(C_ACCENT)
     muted = curses.color_pair(C_MUTED)
 
     sc.put(0, 2, "token-cost", accent | curses.A_BOLD)
-    right = f"{data.project}"
+    right = data.project
     sc.put(0, max(2, sc.w - len(right) - 2), right, muted)
 
-    # A tab bar that runs off the edge hides both which tabs exist and which
-    # one is active. When the full set won't fit, name the current one and say
-    # where it sits instead.
-    full = sum(len(label) + 3 for label, _, _ in TABS) + 2
-    if full > sc.w:
-        current = TABS[tab][0]
-        sc.put(2, 2, LEFT_ARROW, muted)
-        sc.put(2, 4, fit(current, sc.w - 12), accent | curses.A_BOLD)
-        where = f"{tab + 1}/{len(TABS)}"
-        sc.put(2, max(4, sc.w - len(where) - 4), where, muted)
-        sc.put(2, sc.w - 3, RIGHT_ARROW, muted)
-        sc.put(3, 4, UNDER * min(len(current), sc.w - 8), accent)
-        return 5
-
-    x = 2
-    for i, (label, _, _) in enumerate(TABS):
-        if i == tab:
-            sc.put(2, x, label, accent | curses.A_BOLD)
-            sc.put(3, x, UNDER * len(label), accent)
-        else:
-            sc.put(2, x, label, muted)
-        x += len(label) + 3
-        if i < len(TABS) - 1:
-            sc.put(2, x - 2, SEP, muted)
+    left, width = 2, sc.w - 4
+    needed = sum(len(label) + 3 for label, _, _ in TABS) + 1
+    if needed <= width:
+        draw_tabs(sc, tab, 2, left, width)
+    else:
+        # No room for the strip. Name the tab you are on and where it sits,
+        # because a bar that runs off the edge hides both.
+        current, place = TABS[tab][0], f"{tab + 1}/{len(TABS)}"
+        panel(sc, 2, left, width, 3, "")
+        sc.put(3, left + 2, LEFT_ARROW, muted)
+        sc.put(3, left + 4, fit(current, width - 12), accent | curses.A_BOLD)
+        sc.put(3, left + width - len(place) - 5, place, muted)
+        sc.put(3, left + width - 3, RIGHT_ARROW, muted)
 
     sc.put(sc.h - 1, 2, fit(KEYS, sc.w - 4), muted)
     return 5
@@ -488,13 +517,22 @@ def run(stdscr, cwd: str) -> None:
             sc.put(top, 2, f"No token usage recorded yet for {data.project}.")
             sc.put(top + 2, 2, "Finish a task and press r.",
                    curses.color_pair(C_MUTED))
-            total = 0
+            capacity = total = 0
         else:
-            _, total = draw_tab(sc, data, tab, top, offset)
+            capacity, total = draw_tab(sc, data, tab, top, offset)
+
+        # The last row belongs at the bottom of the box, not somewhere in the
+        # middle with empty space under it. If a resize or a reload left the
+        # offset past that point, correct it and draw again before anyone
+        # sees the gap.
+        furthest = max(0, total - capacity)
+        if offset > furthest:
+            offset = furthest
+            continue
         stdscr.refresh()
 
         key = stdscr.getch()
-        page = max(1, sc.h - top - 6)
+        page = max(1, capacity - 1)
         # Not Esc: it is the first byte of every arrow-key sequence, so
         # binding it to quit means a right-arrow can close the app whenever
         # the rest of the sequence lands a moment late.
@@ -507,17 +545,17 @@ def run(stdscr, cwd: str) -> None:
         elif ord("1") <= key <= ord("6"):
             tab, offset = min(key - ord("1"), len(TABS) - 1), 0
         elif key in (curses.KEY_DOWN, ord("j")):
-            offset = min(offset + 1, max(0, total - 1))
+            offset = min(offset + 1, furthest)
         elif key in (curses.KEY_UP, ord("k")):
             offset = max(0, offset - 1)
         elif key == curses.KEY_NPAGE:
-            offset = min(offset + page, max(0, total - 1))
+            offset = min(offset + page, furthest)
         elif key == curses.KEY_PPAGE:
             offset = max(0, offset - page)
         elif key in (ord("g"), curses.KEY_HOME):
             offset = 0
         elif key in (ord("G"), curses.KEY_END):
-            offset = max(0, total - page)
+            offset = furthest
         elif key in (ord("r"), ord("R")):
             data.reload()
             offset = 0
