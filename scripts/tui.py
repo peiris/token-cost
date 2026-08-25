@@ -507,28 +507,40 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
 # chrome
 # --------------------------------------------------------------------------
 
-def nav_cells(labels):
-    """Tab labels with a column either side, so neighbours don't touch."""
-    return [f" {label} " for label in labels]
+# The gutter each tab's label sits in: the marker bar, then room to breathe
+# before the text. Inactive tabs keep the same inset so the row stays on one
+# rhythm whichever tab is selected.
+LABEL_INSET = 3
 
 
 def draw_nav(sc: Screen, tab: int, row: int, x: int, width: int,
              band_top: int = None, band_rows: int = 1) -> None:
-    """Tab names, the selected one marked by a bar down its left edge.
+    """Tab names spread across the full width, the selected one marked by a
+    bar down its left edge.
 
-    A bar rather than a fill: it runs the full height of the box whatever
-    that height is, and being a glyph in its own cell it can't disagree with
-    the frame around it the way a background does.
+    Equal slots rather than a centred run: the row then reads as a bar of
+    tabs rather than a sentence of words, and a tab's position doesn't shift
+    when a neighbour's name is longer.
     """
     labels = [label for label, _, _ in TABS]
-    cells = nav_cells(labels)
     accent = curses.color_pair(C_ACCENT)
     muted = curses.color_pair(C_MUTED)
     band_top = row if band_top is None else band_top
 
-    span = sum(len(c) for c in cells) + len(cells) - 1
-    if span > width:                       # no room: name the current tab
-        place = f"{tab + 1}/{len(TABS)}"
+    slot = width // len(labels)
+    # Give up the qualifier before giving up the row: "Week" in its place
+    # tells you more than one tab's name and a counter.
+    short = [label.replace("This ", "") for label in labels]
+    chosen, inset = None, LABEL_INSET
+    for names in (labels, short):
+        longest = max(len(name) for name in names)
+        if slot >= longest + 2:            # a column of air either side
+            chosen = names
+            inset = min(LABEL_INSET, slot - longest - 1)
+            break
+
+    if chosen is None:
+        place = f"{tab + 1}/{len(TABS)}"   # too tight to spread: name this one
         centred(sc, row, x, width, [
             (LEFT_ARROW + " ", muted),
             (labels[tab], accent | curses.A_BOLD),
@@ -537,15 +549,15 @@ def draw_nav(sc: Screen, tab: int, row: int, x: int, width: int,
         ])
         return
 
-    at = x + max(0, (width - span) // 2)
-    for i, cell in enumerate(cells):
+    spare = width - slot * len(labels)     # spread the remainder, don't pool it
+    for i, label in enumerate(chosen):
+        at = x + i * slot + min(i, spare)
         if i == tab:
             for line in range(band_top, band_top + band_rows):
                 sc.put(line, at, MARKER, accent)
-            sc.put(row, at + 1, cell[1:], accent | curses.A_BOLD)
+            sc.put(row, at + inset, label, accent | curses.A_BOLD)
         else:
-            sc.put(row, at, cell, muted)
-        at += len(cell) + 1
+            sc.put(row, at + inset, label, muted)
 
 
 def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
@@ -578,7 +590,7 @@ def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
 
     # Tucked under the masthead with no gap: the two are one piece of
     # chrome, and the space belongs between chrome and content instead.
-    nav = box_for(1)
+    nav = 3                            # frame, tabs, frame -- no blank rows
     panel(sc, head, left, width, nav, "")
     nx, ny, nw, _ = inside(left, head, width, nav)
     draw_nav(sc, tab, ny, nx, nw, band_top=head + 1, band_rows=nav - 2)
