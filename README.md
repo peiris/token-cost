@@ -270,28 +270,30 @@ same ledger as a full-screen app, with tabs and no limit on how much it can
 show:
 
 ```
-  token-cost                                                                            token-cost
+  token-cost                                                                                      token-cost
 
   Overview │ Today │ This Week │ This Month │ Tasks │ Sessions
   ━━━━━━━━
 
-  ╭─ Project ──────────────────╮  ╭─ Models ───────────────────────────────────────────────╮
-  │ 16 tasks                   │  │ opus-5            16 tasks                      $15.85 │
-  │ 2026-08-23 → 2026-08-25    │  │ haiku-4-5          3 tasks                       $0.29 │
-  │ $16.14                     │  │                                                        │
-  ╰────────────────────────────╯  ╰────────────────────────────────────────────────────────╯
+  ╭─ Project ───────────────────────╮  ╭─ Models ──────────────────────────────────────────────────────────╮
+  │ 16 tasks                        │  │ opus-5            16 tasks                                 $15.85 │
+  │ 2026-08-23 → 2026-08-25         │  │ haiku-4-5          3 tasks                                  $0.29 │
+  │ $16.14                          │  │                                                                   │
+  ╰─────────────────────────────────╯  ╰───────────────────────────────────────────────────────────────────╯
 
-  ╭─ Cost per day ───────────────────────────────────────────────────────────────────────────────╮
-  │ 08-23 ████████████████████████████████████████████████████████████████████████         $7.25 │
-  │ 08-24 █████████████████████████████████████████████████████▊                           $5.41 │
-  │ 08-25 ██████████████████████████████████▌                                              $3.48 │
-  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+  ╭─ Cost per day ─────────────────────────────────────────────────────────────────────────────────────────╮
+  │ 08-23 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▏      $7.25 │
+  │ 08-24 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏      $5.41 │
+  │ 08-25 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏      $3.48 │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
-  ╭─ Most expensive tasks ───────────────────────────────────────────────────────────────────────╮
-  │ Import history automatically on session start instead of asking                        $2.70 │
-  │ Dedupe requests by requestId, we're counting every content block                       $2.55 │
-  │ Add a --backfill flag for sessions that predate the plugin                             $2.30 │
-  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+  ╭─ Most expensive tasks ─────────────────────────────────────────────────────────────────────────────────╮
+  │ Import history automatically on session start instead of asking                                  $2.70 │
+  │ Dedupe requests by requestId, we're counting every content block                                 $2.55 │
+  │ Add a --backfill flag for sessions that predate the plugin                                       $2.30 │
+  │ Save the prompt that started each task                                                           $2.28 │
+  │ Add a today view broken down by model                                                            $1.02 │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
   ←/→ tabs · ↑/↓ scroll · r refresh · q quit
 ```
@@ -304,25 +306,23 @@ The Tasks tab is the one the conversation can't carry — every task on record,
 scrollable, however many there are:
 
 ```
-  token-cost                                                                                              token-cost
+  token-cost                                                                                      token-cost
 
   Overview │ Today │ This Week │ This Month │ Tasks │ Sessions
                                               ━━━━━
 
-  every task
-
-  WHEN         TASK                                               MODEL      INPUT  OUTPUT  CACHE R  CACHE W  EST. $
-  08-25 10:41  /token-cost tasks                                  opus-5         1     189    26.2k     3.5k   $0.05
-  08-25 10:22  Add a per-task breakdown to the report             opus-5        33    4.6k   951.2k    26.4k   $0.85
-  08-25 09:58  Slash commands should record as the command, not…  opus-5        17    1.4k   446.6k     3.5k   $0.29
-  08-25 09:23  Save the prompt that started each task             opus-5 +1     47   11.5k     3.4M    74.7k   $2.28
-  08-24 13:31  Add update instructions to the README              opus-5        10    1.2k   427.4k     3.4k   $0.28
-  08-24 13:06  Publish the plugin to the marketplace              opus-5        25    5.4k     1.4M    15.7k   $1.02
-  08-24 10:05  Add a today view broken down by model              opus-5        20    4.6k     1.5M    17.6k   $1.02
-  08-24 09:33  /token-cost sessions                               opus-5         1     202    28.7k     5.2k   $0.07
-  08-24 09:20  Guard the sync with a lock, two sessions can race  opus-5        17    1.5k   462.5k     5.1k   $0.32
-  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-  TOTAL                                                                        393   81.4k    21.8M   474.4k  $16.14
+  ╭─ every task ───────────────────────────────────────────────────────────────────────────────────────────╮
+  │ WHEN         TASK                                   MODEL      INPUT  OUTPUT  CACHE R  CACHE W  EST. $ │
+  │ 08-25 10:41  /token-cost tasks                      opus-5         1     189    26.2k     3.5k   $0.05 │
+  │ 08-25 10:22  Add a per-task breakdown to the repo…  opus-5        33    4.6k   951.2k    26.4k   $0.85 │
+  │ 08-25 09:58  Slash commands should record as the …  opus-5        17    1.4k   446.6k     3.5k   $0.29 │
+  │ 08-25 09:23  Save the prompt that started each ta…  opus-5 +1     47   11.5k     3.4M    74.7k   $2.28 │
+  │ 08-24 13:31  Add update instructions to the README  opus-5        10    1.2k   427.4k     3.4k   $0.28 │
+  │ 08-24 13:06  Publish the plugin to the marketplace  opus-5        25    5.4k     1.4M    15.7k   $1.02 │
+  │ 08-24 10:05  Add a today view broken down by model  opus-5        20    4.6k     1.5M    17.6k   $1.02 │
+  │ ────────────────────────────────────────────────────────────────────────────────────────────────────── │
+  │ TOTAL                                                            393   81.4k    21.8M   474.4k  $16.14 │
+  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
   ←/→ tabs · ↑/↓ scroll · r refresh · q quit
 ```
 

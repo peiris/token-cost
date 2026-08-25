@@ -62,16 +62,22 @@ def _unicode_ok() -> bool:
 UNICODE = _unicode_ok()
 
 if UNICODE:
-    BLOCKS = " ▏▎▍▌▋▊▉█"   # eighths, so a bar can end between two columns
-    BAR = "█"
+    # Half-height, so consecutive bars can't fuse into one orange mass: each
+    # sits on its own baseline with clear air above it. A full block would
+    # fill its cell top to bottom and the chart would read as a filled area,
+    # which is what it looked like before.
+    BAR, CAP = "▄", "▖"
+    TRACK = "┈"          # the unfilled remainder, so every row shows its extent
+    LEFT_EDGE, RIGHT_EDGE = "▕", "▏"
     RULE, UNDER, VERT = "─", "━", "│"
     CORNERS = "╭╮╰╯"
     SEP, ELLIPSIS = "│", "…"
     LEFT_ARROW, RIGHT_ARROW = "‹", "›"
     KEYS = "←/→ tabs · ↑/↓ scroll · r refresh · q quit"
 else:
-    BLOCKS = " ##"
-    BAR = "#"
+    BAR, CAP = "=", "-"
+    TRACK = "."
+    LEFT_EDGE, RIGHT_EDGE = "[", "]"
     RULE, UNDER, VERT = "-", "=", "|"
     CORNERS = "++++"
     SEP, ELLIPSIS = "|", "~"
@@ -161,29 +167,30 @@ class Screen:
 
 
 def panel(sc: Screen, y: int, x: int, w: int, h: int, title: str) -> None:
-    """A rounded box with a title set into its top edge."""
-    muted = curses.color_pair(C_MUTED)
+    """A rounded box with its title set into the top edge."""
+    edge = curses.color_pair(C_ACCENT)
     w = min(w, sc.w - x)
     if w < 4 or h < 2:
         return
     tl, tr, bl, br = CORNERS
     head = f"{tl}{RULE} {fit(title, w - 6)} " if title else tl
-    sc.put(y, x, head + RULE * max(0, w - len(head) - 1) + tr, muted)
+    sc.put(y, x, head + RULE * max(0, w - len(head) - 1) + tr, edge)
     for row in range(y + 1, y + h - 1):
-        sc.put(row, x, VERT, muted)
-        sc.put(row, x + w - 1, VERT, muted)
-    sc.put(y + h - 1, x, bl + RULE * (w - 2) + br, muted)
+        sc.put(row, x, VERT, edge)
+        sc.put(row, x + w - 1, VERT, edge)
+    sc.put(y + h - 1, x, bl + RULE * (w - 2) + br, edge)
 
 
-def bar(value: float, peak: float, width: int) -> str:
-    """A horizontal bar with eighth-block precision, so small values still
-    show something rather than rounding away to nothing."""
+def bar(value: float, peak: float, width: int):
+    """(filled, remainder) for one bar, both already sized to `width`.
+
+    Any non-zero value keeps at least one cell: a day that cost something
+    should never render as nothing at all.
+    """
     if peak <= 0 or width <= 0:
-        return ""
-    eighths = max(1, round(value / peak * width * 8)) if value > 0 else 0
-    full, rest = divmod(eighths, 8)
-    return BAR * min(full, width) + (BLOCKS[min(rest, len(BLOCKS) - 1)]
-                                     if full < width and rest else "")
+        return "", ""
+    cells = min(width, max(1, round(value / peak * width))) if value > 0 else 0
+    return BAR * cells, TRACK * (width - cells)
 
 
 # --------------------------------------------------------------------------
@@ -200,7 +207,7 @@ def layout(columns, buckets, width, overrides):
     survive. Rows are never dropped to make a table fit.
     """
     cols = list(columns)
-    flex_floor = 18
+    flex_floor = max(6, min(18, width // 3))
 
     while True:
         cells = [[str(c[2](b)) for c in cols] for b in buckets]
@@ -230,16 +237,33 @@ def layout(columns, buckets, width, overrides):
             break
         cols.pop(headers.index(victim))
 
-    if flex is not None and used < width:
-        widths[flex] += width - used
+    if used < width:
+        # Fill the width: prose column if there is one, otherwise the label
+        # column, which pushes the numbers out to the right edge where a
+        # full-width table wants them.
+        widths[flex if flex is not None else 0] += width - used
     return cols, widths, cells, total
 
 
-def draw_row(sc: Screen, y: int, x: int, cells, widths, aligns, attr=0) -> None:
+def draw_boxed_table(sc: Screen, view, top: int, left: int, width: int,
+                     height: int, offset: int, title: str) -> int:
+    """A table inside its own titled panel, filling the width it is given."""
+    if height < 6:                       # box, header, rule, total, one row
+        return draw_table(sc, view, top, left, width, height, offset)
+    panel(sc, top, left, width, height, title)
+    return draw_table(sc, view, top + 1, left + 2, width - 4, height - 2, offset)
+
+
+def draw_row(sc: Screen, y: int, x: int, cells, widths, aligns, attr=0,
+             limit=None) -> None:
+    """`limit` is the first column the row may not reach: inside a box that
+    is the border, and a cell written past it would draw straight over the
+    frame."""
+    edge = sc.w if limit is None else min(sc.w, limit)
     for cell, w, align in zip(cells, widths, aligns):
-        if x >= sc.w:
+        if x >= edge:
             return
-        text = fit(cell, w)
+        text = fit(cell, min(w, edge - x))
         sc.put(y, x, text.rjust(w) if align == ">" else text.ljust(w), attr)
         x += w + GAP
 
@@ -251,8 +275,9 @@ def draw_table(sc: Screen, view, top: int, left: int, width: int, height: int,
         view.columns, view.buckets, width, view.overrides)
     aligns = [c[1] for c in cols]
 
+    limit = left + width
     draw_row(sc, top, left, [c[0] for c in cols], widths, aligns,
-             curses.color_pair(C_HEAD) | curses.A_BOLD)
+             curses.color_pair(C_HEAD) | curses.A_BOLD, limit)
 
     body = height - 3            # header, rule, total
     shown = 0
@@ -260,14 +285,16 @@ def draw_table(sc: Screen, view, top: int, left: int, width: int, height: int,
         index = offset + i
         if index >= len(cells):
             break
-        draw_row(sc, top + 1 + i, left, cells[index], widths, aligns)
+        draw_row(sc, top + 1 + i, left, cells[index], widths, aligns,
+                 0, limit)
         shown += 1
 
     rule_y = top + 1 + min(body, max(shown, 0))
     sc.put(rule_y, left, RULE * min(sum(widths) + GAP * (len(widths) - 1),
-                                    sc.w - left), curses.color_pair(C_MUTED))
+                                    width, sc.w - left),
+           curses.color_pair(C_MUTED))
     draw_row(sc, rule_y + 1, left, total, widths, aligns,
-             curses.color_pair(C_TOTAL) | curses.A_BOLD)
+             curses.color_pair(C_TOTAL) | curses.A_BOLD, limit)
     return shown
 
 
@@ -283,11 +310,12 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
     y = top
 
     models = views.model_buckets(data.rows)
-    stats_w = min(30, width)
     # Side by side needs room for both; below a certain width they stack, so
-    # a narrow terminal loses the layout rather than the content.
-    stacked = width - stats_w - 2 < 26
-    models_w = width if stacked else min(width - stats_w - 2, 58)
+    # a narrow terminal loses the layout rather than the content. Between
+    # them they take the whole width rather than leaving a ragged edge.
+    stacked = width < 62
+    stats_w = width if stacked else max(30, width // 3)
+    models_w = width if stacked else width - stats_w - 2
     box_h = min(3 + len(models), 7)
 
     panel(sc, y, left, stats_w, 5, "Project")
@@ -315,12 +343,21 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
         chart_h = min(len(days) + 2, sc.h - y - 8)
         panel(sc, y, left, width, chart_h, "Cost per day")
         peak = max(b["cost"] for b in days) or 1.0
-        room = width - 24
+        # Fills the panel: label, bar, then the figure hard against the right
+        # edge, so the row reads left to right with nothing dangling.
+        room = max(12, width - 23)
         for i, b in enumerate(days[-(chart_h - 2):]):
-            sc.put(y + 1 + i, left + 2, b["key"][5:], muted)
-            sc.put(y + 1 + i, left + 8, bar(b["cost"], peak, room), accent)
+            filled, rest = bar(b["cost"], peak, room)
+            x = left + 2
+            sc.put(y + 1 + i, x, b["key"][5:], muted)
+            x += 6
+            sc.put(y + 1 + i, x, LEFT_EDGE, muted)
+            sc.put(y + 1 + i, x + 1, filled, accent)
+            sc.put(y + 1 + i, x + 1 + len(filled), rest, muted)
+            sc.put(y + 1 + i, x + 1 + room, RIGHT_EDGE, muted)
             cost = ledger.fmt_usd(b["cost"], b["cost_known"])
-            sc.put(y + 1 + i, left + width - len(cost) - 2, cost)
+            sc.put(y + 1 + i, x + room + 4, cost.rjust(9), curses.A_BOLD)
+
         y += chart_h + 1
 
     tasks = sorted(views.task_buckets(data.rows), key=lambda b: -b["cost"])[:5]
@@ -345,32 +382,36 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
     # them fits; truncating up front left prompts short in a column that then
     # turned out to have room to spare.
     view, rows, scope = data.view(tab, ledger.PROMPT_CAP)
+    left, width = 2, sc.w - 4
+    room = sc.h - top - 1
+
     if not view.buckets:
-        sc.put(top, 2, f"Nothing recorded in this window ({scope}).",
+        panel(sc, top, left, width, 3, label)
+        sc.put(top + 1, left + 2, f"Nothing recorded in this window ({scope}).",
                curses.color_pair(C_MUTED))
         return 0, 0
 
-    sc.put(top, 2, view.subtitle, curses.color_pair(C_MUTED))
-    # On a short terminal the breathing room goes first: a blank line is
-    # worth less than a row of data, and reserving one of each left tables
-    # showing a header and a total with nothing in between.
-    gap = 2 if sc.h >= 20 else 1
-    shown = draw_table(sc, view, top + gap, 2, sc.w - 4,
-                       sc.h - top - gap - 1, offset)
+    # A period tab pairs the model split with the tasks behind it, so it
+    # answers "what did this cost" and "what was I doing" at once. The split
+    # is short and its length is known; the task list takes what is left.
+    task_view = None
+    if mode == "models":
+        candidate = views.build(rows, "tasks", scope, ledger.PROMPT_CAP)
+        if candidate.buckets and room >= len(view.buckets) + 12:
+            task_view = candidate
 
-    # A period tab gets the room the model split leaves over, so it answers
-    # "what did this cost" and "what was I doing" at once.
-    below = top + gap + len(view.buckets) + 3
-    room = sc.h - below - 2
-    if mode == "models" and room >= 5:      # subtitle, header, rule, total, a row
-        task_view = views.build(rows, "tasks", scope, ledger.PROMPT_CAP)
-        if task_view.buckets:
-            sc.put(below, 2, f"{len(task_view.buckets)} tasks",
-                   curses.color_pair(C_MUTED))
-            draw_table(sc, task_view, below + gap, 2, sc.w - 4,
-                       sc.h - below - gap - 1, offset)
-            return shown, len(task_view.buckets)
-    return shown, len(view.buckets)
+    if task_view is None:
+        shown = draw_boxed_table(sc, view, top, left, width, room, offset,
+                                 view.subtitle)
+        return shown, len(view.buckets)
+
+    split_h = len(view.buckets) + 5      # borders, header, rule, total
+    draw_boxed_table(sc, view, top, left, width, split_h, 0, view.subtitle)
+    below = top + split_h + 1
+    shown = draw_boxed_table(sc, task_view, below, left, width,
+                             sc.h - below - 1, offset,
+                             f"{len(task_view.buckets)} tasks")
+    return shown, len(task_view.buckets)
 
 
 # --------------------------------------------------------------------------

@@ -101,7 +101,8 @@ NUMERIC_COLS = [
 # writes are the smallest number on the row and input is usually two digits
 # next to millions of cached tokens, so they are the least missed. Rows are
 # never dropped this way -- only columns, and the header says which survived.
-DROP_ORDER = ("CACHE W", "CACHE R", "INPUT", "OUTPUT", "TASKS")
+DROP_ORDER = ("CACHE W", "CACHE R", "INPUT", "OUTPUT", "TASKS", "MODEL",
+              "STARTED", "REQS")
 
 
 # --------------------------------------------------------------------------
