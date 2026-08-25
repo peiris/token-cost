@@ -18,6 +18,7 @@ import curses
 import json
 import locale
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -104,8 +105,79 @@ C_HOVER, C_HOVER_MUTED = 5, 6
 # data
 # --------------------------------------------------------------------------
 
+class Tab:
+    """The tables one tab shows, and what to call each of them.
+
+    Every tab but the overview leads with a summary of what the table below
+    can't say about itself, so a tab is two views rather than one. Which two
+    is fixed by the tab, and both are built from rows that only change when
+    the ledger is reread -- so they are built here, once, rather than on the
+    way into each frame.
+    """
+
+    def __init__(self, data: "Data", index: int):
+        _, mode, period = TABS[index]
+        rows, self.scope = data.rows, ""
+        if period:
+            rows, self.scope = views.in_window(data.rows, period)
+
+        # Labels are built at their stored length and layout decides how much
+        # of them fits; truncating up front left prompts short in a column
+        # that then turned out to have room to spare.
+        self.view = views.build(rows, mode, self.scope, ledger.PROMPT_CAP,
+                                unknown=views.UNKNOWN_LONG)
+        self.summary = self.summary_title = None
+
+        if mode == "models":
+            # "How much" before "on what": the model split, then the tasks
+            # that made it up.
+            self.summary = self.view
+            self.main = views.build(rows, "tasks", self.scope,
+                                    ledger.PROMPT_CAP,
+                                    unknown=views.UNKNOWN_LONG)
+            self.main_title = f"{len(self.main.buckets)} Tasks"
+        elif mode == "sessions":
+            # No model split here: the table below already names every
+            # session, and repeating the split said nothing the Tasks tab
+            # hadn't. Its summary is the shape of the sessions themselves,
+            # which draw_sessions_summary reads off this same view.
+            self.main = self.view
+            self.main_title = self.view.subtitle
+        else:
+            self.summary = views.build(rows, "models", self.scope,
+                                       ledger.PROMPT_CAP)
+            self.main = self.view
+            self.main_title = self.view.subtitle
+
+        if self.summary is not None:
+            self.summary_title = self.summary.subtitle or "By Model"
+
+
+class Overview:
+    """The overview tab's figures: the model split, the spend per day, and
+    the tasks that cost the most.
+
+    Three roll-ups over every row in the ledger. Doing them per frame meant
+    three full passes to move a highlight one row.
+    """
+
+    def __init__(self, data: "Data"):
+        self.models = views.model_buckets(data.rows)
+        self.days = [b for b in views.day_buckets(data.rows)
+                     if b["key"] != "unknown"]
+        self.tasks = sorted(views.task_buckets(data.rows),
+                            key=lambda b: -b["cost"])[:5]
+
+
 class Data:
-    """The ledger, and the views built over it. Reloaded on `r`."""
+    """The ledger, and the views built over it. Reloaded on `r`.
+
+    Views are cached against the rows they came from. Between one keypress
+    and the next the ledger cannot have changed, so a frame's job is to draw
+    what is already built, not to build it again: rolling three thousand
+    rows up per frame is what put a pointer crossing the table at three
+    frames a second.
+    """
 
     def __init__(self, cwd: str):
         self.cwd = cwd
@@ -127,28 +199,72 @@ class Data:
         days = sorted({ledger.local_day(r.get("ts")) for r in self.rows}
                       - {"unknown"})
         self.span = f"{days[0]} → {days[-1]}" if days else "no dated rows"
+        # Everything derived from those rows is now stale. Rebuilt lazily,
+        # so a reload only pays for the tabs someone actually looks at.
+        self._tabs = {}
+        self._overview = None
 
-    def view(self, tab: int, label_width: int):
-        _, mode, period = TABS[tab]
-        rows, scope = self.rows, ""
-        if period:
-            rows, scope = views.in_window(self.rows, period)
-        return views.build(rows, mode, scope, label_width,
-                           unknown=views.UNKNOWN_LONG), rows, scope
+    def tab(self, index: int) -> Tab:
+        got = self._tabs.get(index)
+        if got is None:
+            got = self._tabs[index] = Tab(self, index)
+        return got
+
+    def overview(self) -> Overview:
+        if self._overview is None:
+            self._overview = Overview(self)
+        return self._overview
+
+    def warm(self) -> bool:
+        """Build one tab nobody has opened yet. True if there was one left.
+
+        Rolling a big ledger up takes longer than a frame does, so a tab
+        built on the keypress that arrives at it is a keypress that visibly
+        waits. The UI spends far more time idle than drawing, and this is
+        the work that fits there: called from the input loop whenever
+        nothing is queued, it walks the tabs one at a time until they are
+        all standing by. Arriving at one is then only a draw.
+        """
+        if self._overview is None:
+            self.overview()
+            return True
+        for index, (_, mode, _) in enumerate(TABS):
+            if mode == "overview" or index in self._tabs:
+                continue
+            built = self.tab(index)
+            # The cells too, not just the buckets: turning them into text is
+            # half the cost, and it needs no terminal width to do it.
+            rendered(built.main)
+            if built.summary is not None:
+                rendered(built.summary)
+            return True
+        return False
 
 
 # --------------------------------------------------------------------------
 # drawing helpers
 # --------------------------------------------------------------------------
 
+_VERSION = None
+
+
 def version() -> str:
-    """The plugin's version, read from the manifest beside this file."""
-    manifest = Path(__file__).resolve().parent.parent / ".claude-plugin" / "plugin.json"
-    try:
-        with open(manifest, encoding="utf-8") as fh:
-            return "v" + json.load(fh)["version"]
-    except (OSError, ValueError, KeyError):
-        return ""
+    """The plugin's version, read from the manifest beside this file.
+
+    Read once. It is drawn in the masthead, which means it was being opened
+    and parsed off disk twice on every frame -- for a string that cannot
+    change while the process is running.
+    """
+    global _VERSION
+    if _VERSION is None:
+        manifest = (Path(__file__).resolve().parent.parent
+                    / ".claude-plugin" / "plugin.json")
+        try:
+            with open(manifest, encoding="utf-8") as fh:
+                _VERSION = "v" + json.load(fh)["version"]
+        except (OSError, ValueError, KeyError):
+            _VERSION = ""
+    return _VERSION
 
 
 def caps(text: str) -> str:
@@ -277,52 +393,99 @@ def bar(value: float, peak: float, width: int):
 # table rendering
 # --------------------------------------------------------------------------
 
-def layout(columns, buckets, width, overrides):
-    """Column widths that fit `width`.
+class Rendered:
+    """A view's cells, turned into text once, and the widths they fit into.
 
-    The prose column flexes: it gives space back before any column is
-    dropped, and takes whatever is spare when there is room. Only when
-    squeezing it to its floor still isn't enough do columns start going, in
-    the order views.DROP_ORDER sets, and the header still names the ones that
-    survive. Rows are never dropped to make a table fit.
+    Rendering a cell means formatting a token count, pricing a bucket or
+    condensing a prompt, and a table does it for every row it holds -- three
+    thousand of them, to put twenty on screen. None of that changes between
+    frames, and none of it depends on the width of the terminal: the prose
+    column is capped at the ledger's own prompt length, never at the screen.
+
+    So the text is made once, per view, and stored by column. What the width
+    decides is only which columns survive and how wide each one is, which is
+    arithmetic over a handful of numbers -- cheap enough to redo while a
+    window is being dragged. Drawing a frame then costs the rows on screen
+    rather than the rows in the ledger.
     """
-    cols = list(columns)
-    flex_floor = max(6, min(18, width // 3))
 
-    while True:
-        cells = [[str(c[2](b)) for c in cols] for b in buckets]
-        total = [str(overrides[c[0]]) if c[0] in overrides
-                 else (str(c[3](buckets)) if c[3] else "") for c in cols]
-        total[0] = "TOTAL"
-        grid = [[c[0] for c in cols]] + cells + [total]
-        widths = [max(len(r[i]) for r in grid) for i in range(len(cols))]
+    def __init__(self, view):
+        self.columns = view.columns
+        self.count = len(view.buckets)
+        self.cells = {}      # header -> that column's cells, top to bottom
+        self.foot = {}       # header -> its TOTAL cell
+        self.widest = {}     # header -> the widest of the header and its cells
+        for header, _, cell_of, total_of in view.columns:
+            column = [str(cell_of(b)) for b in view.buckets]
+            self.cells[header] = column
+            self.foot[header] = (
+                str(view.overrides[header]) if header in view.overrides
+                else (str(total_of(view.buckets)) if total_of else ""))
+            self.widest[header] = max([len(header)] + [len(c) for c in column])
+        self.fits = {}       # width -> (columns, widths, total row)
 
-        headers = [c[0] for c in cols]
-        flex = next((headers.index(h) for h in ("TASK", "OPENED WITH")
-                     if h in headers), None)
-        used = sum(widths) + GAP * (len(cols) - 1)
+    def fit(self, width: int):
+        got = self.fits.get(width)
+        if got is None:
+            got = self.fits[width] = self._fit(width)
+        return got
 
-        if used > width and flex is not None:
-            # Take it out of the prose first: a shorter prompt costs less
-            # than a missing column of numbers.
-            give = min(used - width, max(0, widths[flex] - flex_floor))
-            widths[flex] -= give
-            used -= give
+    def _fit(self, width: int):
+        """Columns and widths that fit `width`.
 
-        if used <= width or len(cols) <= 2:
-            break
+        The prose column flexes: it gives space back before any column is
+        dropped, and takes whatever is spare when there is room. Only when
+        squeezing it to its floor still isn't enough do columns start going,
+        in the order views.DROP_ORDER sets, and the header still names the
+        ones that survive. Rows are never dropped to make a table fit.
+        """
+        cols = list(self.columns)
+        flex_floor = max(6, min(18, width // 3))
 
-        victim = next((h for h in views.DROP_ORDER if h in headers), None)
-        if victim is None:
-            break
-        cols.pop(headers.index(victim))
+        while True:
+            headers = [c[0] for c in cols]
+            total = [self.foot[h] for h in headers]
+            total[0] = "TOTAL"
+            widths = [max(self.widest[h], len(t))
+                      for h, t in zip(headers, total)]
 
-    if used < width:
-        # Fill the width: prose column if there is one, otherwise the label
-        # column, which pushes the numbers out to the right edge where a
-        # full-width table wants them.
-        widths[flex if flex is not None else 0] += width - used
-    return cols, widths, cells, total
+            flex = next((headers.index(h) for h in ("TASK", "OPENED WITH")
+                         if h in headers), None)
+            used = sum(widths) + GAP * (len(cols) - 1)
+
+            if used > width and flex is not None:
+                # Take it out of the prose first: a shorter prompt costs less
+                # than a missing column of numbers.
+                give = min(used - width, max(0, widths[flex] - flex_floor))
+                widths[flex] -= give
+                used -= give
+
+            if used <= width or len(cols) <= 2:
+                break
+
+            victim = next((h for h in views.DROP_ORDER if h in headers), None)
+            if victim is None:
+                break
+            cols.pop(headers.index(victim))
+
+        if used < width:
+            # Fill the width: prose column if there is one, otherwise the
+            # label column, which pushes the numbers out to the right edge
+            # where a full-width table wants them.
+            widths[flex if flex is not None else 0] += width - used
+        return cols, widths, total
+
+
+def rendered(view) -> Rendered:
+    """A view's rendered cells, made on first sight of it and kept with it.
+
+    Kept on the view rather than in a cache of its own because a view is
+    built exactly when the ledger is reread -- so this is thrown away at
+    precisely the moment it stops being true, with nothing to invalidate.
+    """
+    if view.render is None:
+        view.render = Rendered(view)
+    return view.render
 
 
 def draw_boxed_table(sc: Screen, view, top: int, left: int, width: int,
@@ -371,12 +534,13 @@ def draw_table(sc: Screen, view, top: int, left: int, width: int, height: int,
                offset: int) -> int:
     """Draw a scrolled table. Returns how many rows the body can hold, which
     is what bounds scrolling -- see the clamp in run()."""
-    cols, widths, cells, total = layout(
-        view.columns, view.buckets, width, view.overrides)
+    table = rendered(view)
+    cols, widths, total = table.fit(width)
     aligns = [c[1] for c in cols]
+    headers = [c[0] for c in cols]
 
     limit = left + width
-    draw_row(sc, top, left, [c[0] for c in cols], widths, aligns,
+    draw_row(sc, top, left, headers, widths, aligns,
              curses.color_pair(C_HEAD) | curses.A_BOLD, limit)
 
     # The footer is pinned to the bottom of the space this table was given,
@@ -387,7 +551,7 @@ def draw_table(sc: Screen, view, top: int, left: int, width: int, height: int,
 
     for i in range(body):
         index = offset + i
-        if index >= len(cells):
+        if index >= table.count:
             break
         y = top + 1 + i
         attr = 0
@@ -397,7 +561,10 @@ def draw_table(sc: Screen, view, top: int, left: int, width: int, height: int,
             # in stripes.
             attr = sc.hover
             sc.put(y, left, " " * width, attr)
-        draw_row(sc, y, left, cells[index], widths, aligns, attr, limit)
+        # Gathered column by column: only the rows on screen are ever
+        # assembled into rows at all.
+        draw_row(sc, y, left, [table.cells[h][index] for h in headers],
+                 widths, aligns, attr, limit)
 
     sc.put(rule_y, left, RULE * min(sum(widths) + GAP * (len(widths) - 1),
                                     width, sc.w - left),
@@ -418,7 +585,8 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
     left, width = 2, sc.w - 4
     y = top
 
-    models = views.model_buckets(data.rows)
+    figures = data.overview()
+    models = figures.models
     # Side by side needs room for both; below a certain width they stack, so
     # a narrow terminal loses the layout rather than the content. Between
     # them they take the whole width rather than leaving a ragged edge.
@@ -461,8 +629,7 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
                    curses.A_BOLD)
     y = (models_y + box_h + 1) if stacked else (y + max(stats_h, box_h) + 1)
 
-    days = [b for b in views.day_buckets(data.rows) if b["key"] != "unknown"]
-    days = days[-(max(3, sc.h - y - 12)):]
+    days = figures.days[-(max(3, sc.h - y - 12)):]
     if days and y + 4 < sc.h:
         chart_h = min(box_for(len(days)), sc.h - y - 8)
         panel(sc, y, left, width, chart_h, "Cost per day")
@@ -493,7 +660,7 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
                    curses.A_BOLD)
         y += chart_h + 1
 
-    tasks = sorted(views.task_buckets(data.rows), key=lambda b: -b["cost"])[:5]
+    tasks = figures.tasks
     if tasks and y + 4 < sc.h:
         box_h = min(box_for(len(tasks)), sc.h - y - 2)
         panel(sc, y, left, width, box_h, "Most expensive tasks")
@@ -569,47 +736,26 @@ def draw_sessions_summary(sc: Screen, view, top: int, left: int,
 
 def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
     """Draw the active tab. Returns (visible rows, total rows) for scrolling."""
-    label, mode, period = TABS[tab]
+    label, mode, _ = TABS[tab]
     if mode == "overview":
         return draw_overview(sc, data, top, offset), 0
 
-    # Build labels at their stored length and let layout decide how much of
-    # them fits; truncating up front left prompts short in a column that then
-    # turned out to have room to spare.
-    view, rows, scope = data.view(tab, ledger.PROMPT_CAP)
+    built = data.tab(tab)
+    view, summary, main = built.view, built.summary, built.main
     left, width = 2, sc.w - 4
     room = sc.h - top - 1
 
     if not view.buckets:
         panel(sc, top, left, width, box_for(1), label)
         nx, ny, _, _ = inside(left, top, width, box_for(1))
-        sc.put(ny, nx, caps(f"Nothing recorded in this window ({scope})."),
+        sc.put(ny, nx,
+               caps(f"Nothing recorded in this window ({built.scope})."),
                curses.color_pair(C_MUTED))
         return 0, 0
-
-    # Each tab leads with a summary of what the table below can't say about
-    # itself. Period and task tabs open with the model split -- "how much"
-    # before "on what". The sessions tab opens with the shape of the
-    # sessions instead: its table already names every session, and the
-    # model split there just repeated the Tasks tab.
-    summary = None
-    if mode == "models":
-        summary = view
-        main = views.build(rows, "tasks", scope, ledger.PROMPT_CAP,
-                           unknown=views.UNKNOWN_LONG)
-        main_title = f"{len(main.buckets)} Tasks"
-    elif mode == "sessions":
-        main = view
-        main_title = view.subtitle
-    else:
-        summary = views.build(rows, "models", scope, ledger.PROMPT_CAP)
-        main = view
-        main_title = view.subtitle
 
     if summary is None:
         split_h = box_for(3)               # count row plus the two outliers
     else:
-        summary_title = summary.subtitle or "By Model"
         split_h = box_for(len(summary.buckets) + 3)  # header, rows, rule, total
 
     if not main.buckets or room < split_h + 8:
@@ -621,10 +767,10 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
         draw_sessions_summary(sc, view, top, left, width, split_h)
     else:
         draw_boxed_table(sc, summary, top, left, width, split_h, 0,
-                         summary_title)
+                         built.summary_title)
     below = top + split_h + 1
     shown = draw_boxed_table(sc, main, below, left, width,
-                             sc.h - below - 1, offset, main_title)
+                             sc.h - below - 1, offset, built.main_title)
     return shown, len(main.buckets)
 
 
@@ -779,6 +925,32 @@ def mouse_report(stdscr):
         stdscr.timeout(-1)
 
 
+# One frame at 60fps. Under a burst of input the UI paints at least this
+# often, so it stays legibly in motion rather than going quiet while it
+# works through a backlog.
+FRAME = 1 / 60
+
+
+def queued(stdscr) -> bool:
+    """Whether another key is already waiting behind the one just handled.
+
+    Motion tracking means the terminal sends a report for every cell the
+    pointer crosses, so a flick of the mouse arrives as a burst of them.
+    Painting one frame each would be painting frames nobody can see, and
+    each one is a frame further behind the pointer. Peek instead, and let
+    the loop swallow the burst before drawing where the pointer ended up.
+    """
+    stdscr.nodelay(True)
+    try:
+        ch = stdscr.getch()
+    finally:
+        stdscr.nodelay(False)
+    if ch == -1:
+        return False
+    curses.ungetch(ch)
+    return True
+
+
 def run(stdscr, cwd: str) -> None:
     curses.curs_set(0)
     stdscr.keypad(True)
@@ -826,28 +998,46 @@ def run(stdscr, cwd: str) -> None:
         sc.hover = curses.color_pair(C_HOVER)
         sc.hover_muted = curses.color_pair(C_HOVER_MUTED)
     tab, offset = 0, 0
+    capacity = total = 0
+    painted = 0.0
 
     while True:
-        sc.measure()
-        stdscr.erase()
-        top = draw_chrome(sc, data, tab)
-        if not data.rows:
-            sc.put(top, 2, f"No Token Usage Recorded Yet For {data.project}.")
-            sc.put(top + 2, 2, "Finish a Task and Press r.",
-                   curses.color_pair(C_MUTED))
-            capacity = total = 0
-        else:
-            capacity, total = draw_tab(sc, data, tab, top, offset)
+        # Draw when the screen is up to date with the input, or when a frame
+        # is due anyway. Skipping the paint while keys are still queued is
+        # what keeps a fast scroll or a swept pointer landing in one frame
+        # instead of a dozen; the clock is the floor under that, so a
+        # continuous stream still paints sixty times a second.
+        if time.monotonic() - painted >= FRAME or not queued(stdscr):
+            sc.measure()
+            stdscr.erase()
+            top = draw_chrome(sc, data, tab)
+            if not data.rows:
+                sc.put(top, 2,
+                       f"No Token Usage Recorded Yet For {data.project}.")
+                sc.put(top + 2, 2, "Finish a Task and Press r.",
+                       curses.color_pair(C_MUTED))
+                capacity = total = 0
+            else:
+                capacity, total = draw_tab(sc, data, tab, top, offset)
 
-        # The last row belongs at the bottom of the box, not somewhere in the
-        # middle with empty space under it. If a resize or a reload left the
-        # offset past that point, correct it and draw again before anyone
-        # sees the gap.
+            # The last row belongs at the bottom of the box, not somewhere in
+            # the middle with empty space under it. If a resize or a reload
+            # left the offset past that point, correct it and draw again
+            # before anyone sees the gap.
+            if offset > max(0, total - capacity):
+                offset = max(0, total - capacity)
+                continue
+            stdscr.refresh()
+            painted = time.monotonic()
+
         furthest = max(0, total - capacity)
-        if offset > furthest:
-            offset = furthest
-            continue
-        stdscr.refresh()
+
+        # Nothing waiting, so put the lull to use: build the tabs that
+        # haven't been opened yet, one at a time, giving up the moment a key
+        # arrives. By the time anyone has read the screen in front of them,
+        # every tab behind it is ready to draw.
+        while not queued(stdscr) and data.warm():
+            pass
 
         try:
             key = stdscr.getch()

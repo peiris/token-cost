@@ -14,6 +14,7 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 # Where Claude Code keeps its data. Never assume: a hook hands us a real
 # transcript path, and everything can be derived from that. The fallbacks
@@ -684,18 +685,72 @@ def save_state(session_id: str, state: dict, transcript=None) -> None:
 # aggregation + formatting
 # --------------------------------------------------------------------------
 
-def local_day(ts: str | None) -> str:
-    """Bucket a UTC transcript timestamp into the viewer's local calendar
-    day, so 'today' means the user's today rather than UTC's."""
+_LOCAL_ZONE = None
+
+
+def _read_local_zone():
+    """The viewer's timezone, from wherever this machine keeps it."""
+    name = os.environ.get("TZ")
+    if name:
+        try:
+            return ZoneInfo(name)
+        except (ValueError, KeyError, OSError):
+            pass  # a POSIX TZ string rather than a zone name
+    try:
+        # The file itself, not a name looked up in a database: it is what
+        # the C library reads, it carries every daylight-saving rule, and
+        # it needs no tzdata package installed to be understood.
+        with open("/etc/localtime", "rb") as fh:
+            return ZoneInfo.from_file(fh, key="local")
+    except (OSError, ValueError):
+        pass
+    # Nowhere to read a zone from. Today's offset is right for every row
+    # that isn't on the far side of a daylight-saving change.
+    return datetime.now().astimezone().tzinfo
+
+
+def local_zone():
+    """The viewer's timezone, read once and kept.
+
+    `astimezone()` with no argument asks the C library for the local zone on
+    every single call, and macOS answers by stat-ing the timezone file each
+    time. Bucketing a few thousand ledger rows by local day then costs a few
+    thousand syscalls -- a third of a second, spent to draw one table.
+    Reading the zone once and handing it over gives the same answer,
+    daylight saving and all, for a hundredth of the work.
+    """
+    global _LOCAL_ZONE
+    if _LOCAL_ZONE is None:
+        _LOCAL_ZONE = _read_local_zone()
+    return _LOCAL_ZONE
+
+
+def to_local(ts: str | None):
+    """One UTC transcript timestamp in the viewer's own time, or None.
+
+    Transcripts stamp everything UTC; every figure on screen is dated in the
+    viewer's day. This is the one place that crossing happens.
+    """
     if not ts:
-        return "unknown"
+        return None
     try:
         dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except ValueError:
-        return "unknown"
+        return None
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone().strftime("%Y-%m-%d")
+    return dt.astimezone(local_zone())
+
+
+def local_day(ts: str | None) -> str:
+    """Bucket a UTC transcript timestamp into the viewer's local calendar
+    day, so 'today' means the user's today rather than UTC's."""
+    day = to_local(ts)
+    if day is None:
+        return "unknown"
+    # Built by hand rather than by strftime, which reformats through the
+    # locale for a result that is three fixed-width numbers.
+    return f"{day.year:04d}-{day.month:02d}-{day.day:02d}"
 
 
 def aggregate(rows: list[dict], key_fn) -> list[dict]:
@@ -709,8 +764,13 @@ def aggregate(rows: list[dict], key_fn) -> list[dict]:
     Each bucket also carries the models it drew on, and the prompt of its
     earliest row -- which is what names a task or a session in the report.
     """
+    # This loop runs once per ledger row per roll-up, and a UI builds
+    # several roll-ups: it is the hottest thing in the plugin. Hence the
+    # bound `row.get` and the values read once -- the same arithmetic, with
+    # the repeated lookups taken out of it.
     buckets: dict = {}
     for row in rows:
+        get = row.get
         key = key_fn(row)
         b = buckets.get(key)
         if b is None:
@@ -720,27 +780,31 @@ def aggregate(rows: list[dict], key_fn) -> list[dict]:
                 "models": {}, "ctx": 0,
                 **{k: 0 for k in TOKEN_KEYS},
             }
-        b["tasks"].add((row.get("session"), row.get("turn")))
+        b["tasks"].add((get("session"), get("turn")))
         for k in TOKEN_KEYS:
-            b[k] += row.get(k, 0)
-        if (row.get("ctx") or 0) > b["ctx"]:
-            b["ctx"] = row["ctx"]
-        if row.get("cost_usd") is None:
+            b[k] += get(k, 0)
+        ctx = get("ctx") or 0
+        if ctx > b["ctx"]:
+            b["ctx"] = ctx
+        cost = get("cost_usd")
+        if cost is None:
             b["cost_known"] = False
         else:
-            b["cost"] += row["cost_usd"]
-        model = model_label(row)
-        if row.get("model"):
+            b["cost"] += cost
+        if get("model"):
             # Ranked by spend, so the model a bucket mostly ran on leads --
             # a one-request haiku subagent shouldn't headline an opus task.
-            b["models"][model] = b["models"].get(model, 0.0) + (row.get("cost_usd") or 0.0)
-        ts = row.get("ts")
+            models = b["models"]
+            label = model_label(row)
+            models[label] = models.get(label, 0.0) + (cost or 0.0)
+        ts = get("ts")
         if ts and (not b["first_ts"] or ts < b["first_ts"]):
             b["first_ts"] = ts
-            if row.get("prompt"):
-                b["prompt"] = row["prompt"]
+            prompt = get("prompt")
+            if prompt:
+                b["prompt"] = prompt
         elif not b["prompt"]:
-            b["prompt"] = row.get("prompt") or ""
+            b["prompt"] = get("prompt") or ""
     out = []
     for b in buckets.values():
         b["tasks"] = len(b["tasks"])

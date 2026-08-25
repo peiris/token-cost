@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -37,6 +37,12 @@ MODES = ("days", "tasks", "sessions", "models")
 # cell formatting
 # --------------------------------------------------------------------------
 
+# Compiled once: a table names its model on every row, and re-looking-up
+# these two patterns per cell is most of what shortening a name costs.
+_VENDOR = re.compile(r"^claude-")
+_DATED = re.compile(r"-\d{8}$")
+
+
 def short_model(model: str) -> str:
     """claude-haiku-4-5-20251001 -> haiku-4-5
 
@@ -45,7 +51,7 @@ def short_model(model: str) -> str:
     model at different prices with nothing to tell them apart.
     """
     model, sep, note = model.partition(" (")
-    return re.sub(r"-\d{8}$", "", re.sub(r"^claude-", "", model)) + sep + note
+    return _DATED.sub("", _VENDOR.sub("", model)) + sep + note
 
 
 def models_cell(b: dict) -> str:
@@ -82,16 +88,10 @@ def cache_write(b: dict) -> int:
 
 
 def started(b: dict) -> str:
-    ts = b.get("first_ts")
-    if not ts:
+    at = ledger.to_local(b.get("first_ts"))
+    if at is None:
         return "?"
-    try:
-        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except ValueError:
-        return "?"
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone().strftime("%m-%d %H:%M")
+    return f"{at.month:02d}-{at.day:02d} {at.hour:02d}:{at.minute:02d}"
 
 
 def token_col(header, get):
@@ -180,6 +180,11 @@ class View:
         self.subtitle = subtitle
         self.tasks = tasks          # distinct tasks behind the whole view
         self.hint = hint
+        # Somewhere for a frontend to keep its rendering of these buckets.
+        # It hangs off the view rather than off the frontend because a view
+        # is built exactly when its data changes, so nothing kept here can
+        # outlive the numbers it was made from.
+        self.render = None
 
     @property
     def overrides(self) -> dict:

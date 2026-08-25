@@ -313,6 +313,27 @@ def x10(code: int, x: int, y: int) -> bytes:
     return b"\x1b[M" + bytes([32 + code, 32 + x, 32 + y])
 
 
+def sgr(y: int) -> bytes:
+    """An SGR motion report at column 12, row y."""
+    return b"\x1b[<35;12;%dM" % y
+
+
+def resting_row(app: App, report) -> int:
+    """A screen row that lights when the pointer comes to rest on it, or 0.
+
+    Which rows are table rows depends on the layout, which depends on the
+    data -- so find one rather than name one, moving a cell at a time and
+    letting each land, the way a hand moves a mouse.
+    """
+    for y in range(6, 38):
+        seen = app.raw.count(HOVER_BG)
+        app.send(report(y))
+        app.read(0.08)
+        if app.raw.count(HOVER_BG) > seen:
+            return y
+    return 0
+
+
 def run_mouse(cwd: str) -> list:
     """Hover and wheel, in both encodings a terminal might use.
 
@@ -332,19 +353,28 @@ def run_mouse(cwd: str) -> list:
 
     app.send(b"5")                      # two tables on screen to hover over
     app.wait_for("Every Task")
-    seen = app.raw.count(HOVER_BG)
-    for y in range(6, 38):              # sweep a column: some land on rows
-        app.send(b"\x1b[<35;12;%dM" % y)
-    app.read(1.0)
-    if app.raw.count(HOVER_BG) <= seen:
-        problems.append("mouse: SGR motion lit no row")
 
-    seen = app.raw.count(HOVER_BG)
-    for y in range(6, 38):
-        app.send(x10(35, 12, y))        # 32 for motion, 3 for no button
-    app.read(1.0)
-    if app.raw.count(HOVER_BG) <= seen:
+    row = resting_row(app, sgr)
+    if not row:
+        problems.append("mouse: SGR motion lit no row")
+    x10_row = resting_row(app, lambda y: x10(35, 12, y))  # 32 motion, 3 no button
+    if not x10_row:
         problems.append("mouse: X10 motion lit no row")
+
+    # A flick of the mouse crosses more cells than there are frames to draw
+    # them in, and the UI answers where the pointer ended up rather than
+    # painting every cell it passed over. What has to hold is that it lands
+    # lit on the row the pointer stopped on.
+    row = row or x10_row
+    if row:
+        app.send(sgr(1))                # off the table: the band goes out
+        app.read(0.3)
+        seen = app.raw.count(HOVER_BG)
+        for y in range(6, row + 1):     # sent as fast as the pty will take it
+            app.send(sgr(y))
+        app.read(1.0)
+        if app.raw.count(HOVER_BG) <= seen:
+            problems.append("mouse: a fast sweep left the resting row unlit")
 
     for _ in range(4):                  # wheel: SGR both ways, X10 up
         app.send(b"\x1b[<65;12;20M" + b"\x1b[<64;12;20M" + x10(64, 12, 20))

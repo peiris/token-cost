@@ -496,6 +496,23 @@ passes only when all three agree:
   rate table and must land inside the band the two cache-write TTLs allow.
   Two implementations agreeing on the money, one of them Anthropic's.
 
+`dev/bench_tui.py` does the same for the UI, which has its own kind of
+correctness: a table you can't scroll smoothly is a table you don't read. It
+starts the real app in a pseudo-terminal and times whole frames — the budget
+is 16.67ms, which is one frame at 60fps — and reports the median and the
+95th percentile per tab, because a UI that is fast on average and stutters
+every tenth frame is a UI that stutters. `--synthetic N` measures against a
+ledger of N rows rather than this project's, since the frame that matters is
+the one a heavy project pays for. At 12,000 rows every frame lands under
+1.3ms, hover and scroll included.
+
+Two things keep it there. Nothing is rolled up on the way into a frame: the
+views, and the text of every cell in them, are built when the ledger is read
+and kept until it is read again, so drawing costs the rows on screen rather
+than the rows on disk. And the roll-ups happen while nobody is waiting —
+the input loop builds the tabs you haven't opened yet during the lulls
+between keystrokes, giving up the instant a key arrives.
+
 ## Limits
 
 - **Costs are estimates** computed from published API rates. On a subscription
