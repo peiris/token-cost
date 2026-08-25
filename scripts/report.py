@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Render the project's token ledger for Claude Code.
 
-Usage: report.py [--cwd PATH] [--budget N] [days|tasks|sessions|ui] [today|week|month]
+Usage: report.py [--cwd PATH] [--budget N] [--width N]
+                 [days|tasks|sessions|ui] [today|week|month]
 
 What a view contains lives in views.py; this file only knows how to print the
 chat overview and its explicit plain-text tables. `--budget` caps how many
 characters that print may occupy -- see budget_notice for why a report ever
-declines to draw itself.
+declines to draw itself. `--width` pins the overview to a column count
+instead of working one out; so does TOKEN_COST_WIDTH in the environment.
 """
 
 from __future__ import annotations
@@ -24,12 +26,114 @@ import views  # noqa: E402
 HERE = Path(__file__).resolve().parent
 PLUGIN_ROOT = HERE.parent
 
-# Claude Code prints this report in a code block rather than a real terminal.
-# Keep the overview comfortably inside that pane while preserving the same
-# hierarchy as the full-screen UI: masthead, key figures, the model split,
-# spend over time, and the tasks worth investigating.
-OVERVIEW_WIDTH = 94
+# --------------------------------------------------------------------------
+# how wide the report may be
+# --------------------------------------------------------------------------
 
+# Claude Code prints this report into a chat pane rather than a terminal, so
+# stdout here is a pipe and the width never arrives the usual way. A fixed
+# width is not an answer: assume more columns than the pane has and every
+# framed line wraps onto the next row, which is how a box drawing becomes
+# confetti. But the pane is as wide as the terminal Claude Code itself is
+# attached to, and that process is one of our own ancestors -- so walk up to
+# it and ask its TTY.
+CHAT_RESERVE = 10    # message indent, the code block's padding, autowrap slack
+MIN_WIDTH, MAX_WIDTH = 44, 100
+FALLBACK_WIDTH = 74  # a plain 80-column terminal, less that same reserve
+
+# The frames, the tab bar and the arithmetic that places every figure are the
+# full-screen UI's, mirrored here so the two read as one thing seen twice.
+# Each constant below names the tui.py one it tracks.
+PAD_X = 2            # tui.PAD_X: columns of air inside a frame
+GAP = 2              # columns between two panels sharing a row
+STACK_BELOW = 68     # tui.draw_overview: narrower than this, panels stack
+LABEL_INSET = 2      # tui.LABEL_INSET: the marker column, then a space
+NAV_GAP = 3          # tui.NAV_GAP
+STATS_MIN = 30       # tui.draw_overview: the Project panel's floor
+
+
+def _process_tree() -> dict:
+    """{pid: (ppid, tty name)} for every process, in one call to ps."""
+    import subprocess
+    try:
+        done = subprocess.run(["ps", "-Ao", "pid=,ppid=,tty="],
+                              capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    tree = {}
+    for line in done.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[0].isdigit() and parts[1].isdigit():
+            tree[int(parts[0])] = (int(parts[1]), parts[2])
+    return tree
+
+
+def tty_columns(name: str) -> int:
+    """How wide a terminal is that this process is not attached to.
+
+    Opened O_NOCTTY, so asking never makes it ours.
+    """
+    if not name or "?" in name:
+        return 0
+    try:
+        fd = os.open(f"/dev/{name}", os.O_RDONLY | os.O_NOCTTY | os.O_NONBLOCK)
+    except OSError:
+        return 0
+    try:
+        return os.get_terminal_size(fd).columns
+    except OSError:
+        return 0
+    finally:
+        os.close(fd)
+
+
+def ancestor_columns() -> int:
+    """The width of the nearest ancestor process that owns a terminal.
+
+    Claude Code runs this script from a shell it spawned, so the terminal the
+    report is about to be drawn on is a couple of hops up the parent chain.
+    Nothing here is Claude-specific: run from a pipeline in an ordinary
+    shell, the same walk finds the same terminal.
+    """
+    tree = _process_tree()
+    seen = set()
+    pid = os.getpid()
+    while pid > 1 and pid not in seen:
+        seen.add(pid)
+        parent, tty = tree.get(pid, (0, ""))
+        if columns := tty_columns(tty):
+            return columns
+        pid = parent
+    return 0
+
+
+def report_width(explicit: int = 0) -> int:
+    """How many columns the overview may draw into."""
+    if explicit > 0:
+        return max(MIN_WIDTH, explicit)
+    override = (os.environ.get("TOKEN_COST_WIDTH") or "").strip()
+    if override.isdigit() and int(override) > 0:
+        return max(MIN_WIDTH, int(override))
+    if sys.stdout.isatty():
+        # Printed straight into a terminal: all of it is ours but the column
+        # autowrap needs kept in hand.
+        try:
+            return max(MIN_WIDTH,
+                       min(MAX_WIDTH, os.get_terminal_size(1).columns - 1))
+        except OSError:
+            pass
+    env = (os.environ.get("COLUMNS") or "").strip()
+    columns = int(env) if env.isdigit() else 0
+    if columns <= 0:
+        columns = ancestor_columns()
+    if columns <= 0:
+        return FALLBACK_WIDTH
+    return max(MIN_WIDTH, min(MAX_WIDTH, columns - CHAT_RESERVE))
+
+
+# --------------------------------------------------------------------------
+# the shapes the UI draws
+# --------------------------------------------------------------------------
 
 def version() -> str:
     """The installed plugin version for the chat overview masthead."""
@@ -41,39 +145,202 @@ def version() -> str:
         return ""
 
 
-def frame(title: str, rows: list[str], width: int = OVERVIEW_WIDTH) -> list[str]:
-    """A chat-safe titled panel, mirroring the full-screen UI's frames."""
-    width = max(8, width)
-    inner = width - 4
-    title = title[:max(0, inner - 2)]
-    head = f"╭─ {title} "
+def fit(text: str, width: int) -> str:
+    """tui.fit: trim to width, marking the cut so a clipped label never
+    reads as complete."""
+    if width <= 0:
+        return ""
+    if len(text) <= width:
+        return text
+    return text[:width - 1] + "…" if width > 1 else "…"
+
+
+def caps(text: str) -> str:
+    """tui.caps: capitalise each word, leaving the rest of it alone."""
+    return " ".join(w[:1].upper() + w[1:] if w else w for w in text.split(" "))
+
+
+def centre(text: str, width: int) -> str:
+    """tui.centred, as a string: the run placed, then padded out."""
+    at = max(0, (width - len(text)) // 2)
+    return (" " * at + fit(text, width - at)).ljust(width)
+
+
+def frame(title: str, rows: list[str], width: int) -> list[str]:
+    """A titled panel in the shape tui.panel draws: rounded corners, the
+    title set into the top edge, two columns of air each side, and the blank
+    line top and bottom that tui.inside gives every box with room for it."""
+    width = max(2 * PAD_X + 4, width)
+    inner = width - 2 - 2 * PAD_X
+    head = f"╭─ {fit(caps(title), width - 6)} " if title else "╭"
+    pad = " " * PAD_X
     lines = [head + "─" * max(0, width - len(head) - 1) + "╮"]
-    lines.extend(f"│ {line[:inner].ljust(inner)} │" for line in rows)
+    lines += [f"│{pad}{fit(row, inner):<{inner}}{pad}│"
+              for row in ["", *rows, ""]]
     lines.append("╰" + "─" * (width - 2) + "╯")
     return lines
 
 
-def paired_frames(left_title: str, left_rows: list[str], right_title: str,
-                  right_rows: list[str]) -> list[str]:
-    """Two panels on one line, as long as the report's fixed width allows."""
-    left_width = 31
-    right_width = OVERVIEW_WIDTH - left_width - 2
-    content_height = max(len(left_rows), len(right_rows))
-    left = frame(left_title, left_rows + [""] * (content_height - len(left_rows)),
-                 left_width)
-    right = frame(right_title,
-                  right_rows + [""] * (content_height - len(right_rows)),
-                  right_width)
-    return [a + "  " + b for a, b in zip(left, right)]
+def side_by_side(left: list[str], right: list[str]) -> list[str]:
+    """Two frames on one row, the shorter running out under the taller.
+
+    The left column keeps its width once it closes, because the frame beside
+    it still has to start in the same place. Past the right-hand frame there
+    is nothing to hold a column open for, so the line ends there rather than
+    trailing whitespace off the edge of the panel.
+    """
+    height = max(len(left), len(right))
+    left = left + [" " * len(left[0])] * (height - len(left))
+    right = right + [""] * (height - len(right))
+    return [(a + " " * GAP + b).rstrip() for a, b in zip(left, right)]
 
 
-def overview(rows: list[dict], project: str) -> str:
+def nav_row(width: int) -> str:
+    """The tab bar with Overview marked, laid out the way tui.draw_nav lays
+    it: each name in its own gutter -- the marker column, then a space -- so
+    the row keeps one rhythm whichever tab is selected.
+
+    The qualifier goes before the spacing does, and the spacing before the
+    row does: "Week" in its place tells you more than one name and a counter.
+    """
+    labels = [label for label, _, _ in views.TABS]
+    short = [label.replace("This ", "") for label in labels]
+
+    def span(names, gap):
+        return sum(LABEL_INSET + len(n) for n in names) + gap * (len(names) - 1)
+
+    for names, gap in ((labels, NAV_GAP), (short, NAV_GAP),
+                       (short, NAV_GAP - 1), (short, 1)):
+        if span(names, gap) <= width:
+            cells = [("▌ " if i == 0 else "  ") + name
+                     for i, name in enumerate(names)]
+            return (" " * gap).join(cells).ljust(width)
+    return centre(f"‹ {labels[0]}  1/{len(labels)} ›", width)
+
+
+def chrome(width: int, project: str) -> list[str]:
+    """The masthead and the tab bar, as tui.draw_chrome draws them.
+
+    One piece of chrome rather than two stacked boxes: the frames share a
+    rule, and the shared row's ends become tees. Two lines a row apart read
+    as a gap between them.
+    """
+    inner = width - 2 - 2 * PAD_X
+    pad = " " * PAD_X
+    mark = "▂▄▆█  Claude Token Cost"
+    stamp = version()
+    tag = f" {stamp}" if stamp else ""
+    # Shed the trailing detail rather than run into the frame: the project
+    # goes first, then the version, and the name always survives.
+    title = next((text for text in (mark + tag + f"  ·  {project}", mark + tag,
+                                    mark) if len(text) <= inner), mark)
+    lines = frame("", [centre(title, inner)], width)[:-1]   # keep it open
+    lines.append("├" + "─" * (width - 2) + "┤")
+    lines.append(f"│{pad}{nav_row(inner)}{pad}│")
+    lines.append("╰" + "─" * (width - 2) + "╯")
+    return lines
+
+
+def figure_row(left: str, tokens: str, cost: str, width: int,
+               token_w: int, cost_w: int, gap: int) -> str:
+    """One row: `left`, then the two figures hard against the right edge.
+
+    tui.draw_overview places both by column rather than by offset from the
+    text, so a figure never moves because the one beside it got shorter.
+    `gap` is the least air kept between the label and them.
+    """
+    tail = f"{tokens:>{token_w}}   {cost:>{cost_w}}"
+    room = max(0, width - len(tail) - gap)
+    return f"{fit(left, room):<{room}}{' ' * gap}{tail}"
+
+
+def bar(value: float, peak: float, width: int):
+    """tui.bar: (filled, remainder). Any non-zero value keeps a cell, so a
+    day that cost something never renders as nothing at all."""
+    if peak <= 0 or width <= 0:
+        return "", ""
+    cells = min(width, max(1, round(value / peak * width))) if value > 0 else 0
+    return "▄" * cells, "┈" * (width - cells)
+
+
+def model_rows(models: list[dict], width: int) -> list[str]:
+    """The model split: name, task count, tokens and spend.
+
+    Which of those a row can hold is views.model_figures' call, so this
+    panel and the UI's shed the same things at the same widths.
+    """
+    name_w, counts, tokens, costs = views.model_figures(models, width)
+    token_w = max(len(t) for t in tokens)
+    cost_w = max(len(c) for c in costs)
+    return [
+        figure_row(f"{fit(b['key'], name_w):<{name_w}}{tally}",
+                   token, cost, width, token_w, cost_w, GAP)
+        for b, tally, token, cost in zip(models, counts, tokens, costs)
+    ]
+
+
+def day_rows(days: list[dict], width: int) -> list[str]:
+    """Spend per day as bars, the figures hard against the right edge."""
+    costs = [ledger.fmt_usd(b["cost"], b["cost_known"]) for b in days]
+    counts = [ledger.fmt_tokens(views.total_tokens(b)) for b in days]
+    cost_w = max(len(c) for c in costs)
+    count_w = max(len(c) for c in counts)
+    # date, its space, the two edges and the air before the figures take
+    # thirteen cells together -- the same reservation tui.draw_overview makes.
+    room = max(6, width - 13 - cost_w - count_w)
+    peak = max(b["cost"] for b in days) or 1.0
+    rows = []
+    for b, count, cost in zip(days, counts, costs):
+        filled, rest = bar(b["cost"], peak, room)
+        rows.append(figure_row(f"{b['key'][5:]} ▕{filled}{rest}▏",
+                               count, cost, width, count_w, cost_w, GAP))
+    return rows
+
+
+def task_rows(tasks: list[dict], width: int) -> list[str]:
+    """The priciest tasks, named the way the UI names them."""
+    costs = [ledger.fmt_usd(b["cost"], b["cost_known"]) for b in tasks]
+    counts = [ledger.fmt_tokens(views.total_tokens(b)) for b in tasks]
+    cost_w = max(len(c) for c in costs)
+    count_w = max(len(c) for c in counts)
+    room = max(10, width - cost_w - count_w - 6)
+    return [
+        figure_row(views.label_of(b, room, views.UNKNOWN_LONG),
+                   count, cost, width, count_w, cost_w, 3)
+        for b, count, cost in zip(tasks, counts, costs)
+    ]
+
+
+def wrap(text: str, width: int) -> list[str]:
+    """Break a sentence on spaces so a note can't overrun the frames.
+
+    A line already inside the width comes back untouched, spacing and all:
+    the header above a table lines its fields up with runs of spaces, and
+    rebuilding it word by word would close them.
+    """
+    if len(text) <= width:
+        return [text] if text else []
+    lines, line = [], ""
+    for word in text.split():
+        if line and len(line) + 1 + len(word) > width:
+            lines.append(line)
+            line = word
+        else:
+            line = f"{line} {word}" if line else word
+    return lines + [line] if line else lines
+
+
+def overview(rows: list[dict], project: str, width: int = 0) -> str:
     """Render the default Claude Code report in the full-screen UI's shape.
 
     Curses cannot attach to Claude Code's captured shell, but its output is
-    still monospaced. This is the static, scrollable counterpart to the UI's
-    Overview tab rather than a second, unrelated presentation of the ledger.
+    still monospaced and its pane still has a width we can find out. So this
+    is the static, scrollable counterpart to the UI's Overview tab -- same
+    chrome, same panels, same rows, sized to whatever room it is given --
+    rather than a second, unrelated presentation of the ledger.
     """
+    width = report_width(width)
+    inner = width - 2 - 2 * PAD_X
     tasks = views.count_tasks(rows)
     total_cost = sum(row.get("cost_usd") or 0.0 for row in rows)
     cost_known = all(row.get("cost_usd") is not None for row in rows)
@@ -84,14 +351,7 @@ def overview(rows: list[dict], project: str) -> str:
     span = (f"{days[0]['key']} → {days[-1]['key']}" if days
             else "no dated rows")
 
-    title_parts = ["▂▄▆█", "Claude Token Cost"]
-    if current := version():
-        title_parts.append(current)
-    title_parts.append("·")
-    title_parts.append(project)
-    masthead = "  ".join(title_parts)
-    nav = "▌ Overview     Today     This Week     This Month     All Tasks     Sessions"
-    lines = frame(masthead, [nav])
+    lines = chrome(width, project)
     lines.append("")
 
     project_rows = [
@@ -101,111 +361,80 @@ def overview(rows: list[dict], project: str) -> str:
         ledger.fmt_usd(total_cost, cost_known),
     ]
     models = views.model_buckets(rows)
-    model_costs = [ledger.fmt_usd(bucket["cost"], bucket["cost_known"])
-                   for bucket in models]
-    model_tokens = [f"{ledger.fmt_tokens(views.total_tokens(bucket))} Tokens"
-                    for bucket in models]
-    model_width = min(18, max([5] + [len(bucket["key"]) for bucket in models]))
-    task_counts = [f"{bucket['tasks']:,} Tasks" for bucket in models]
-    task_width = max([5] + [len(count) for count in task_counts])
-    tokens_width = max([6] + [len(tokens) for tokens in model_tokens])
-    cost_width = max([1] + [len(cost) for cost in model_costs])
-    model_rows = [
-        f"{bucket['key'][:model_width]:<{model_width}}  "
-        f"{count:>{task_width}}  {tokens:>{tokens_width}}  {cost:>{cost_width}}"
-        for bucket, count, tokens, cost in zip(
-            models, task_counts, model_tokens, model_costs)
-    ]
-    paired_model_width = OVERVIEW_WIDTH - 31 - 2 - 4
-    if all(len(row) <= paired_model_width for row in model_rows):
-        lines.extend(paired_frames("Project", project_rows, "Models", model_rows))
+    # Side by side needs room for both; below a certain width they stack, so
+    # a narrow pane loses the layout rather than the content.
+    stacked = width < STACK_BELOW
+    stats_w = width if stacked else max(STATS_MIN, width // 3)
+    models_w = width if stacked else width - stats_w - GAP
+    built = model_rows(models, models_w - 2 - 2 * PAD_X) if models else []
+    if stacked:
+        lines += frame("Project", project_rows, stats_w)
+        lines += frame("Models", built, models_w)
     else:
-        # Preserve unusually large figures instead of slicing their dollars
-        # off at the narrow right-hand panel's edge.
-        lines.extend(frame("Project", project_rows))
-        lines.append("")
-        lines.extend(frame("Models", model_rows))
+        # Each box keeps its own height and they hang from the same line, the
+        # way two panels of different depths sit beside each other in the UI.
+        lines += side_by_side(frame("Project", project_rows, stats_w),
+                              frame("Models", built, models_w))
 
     if days:
         lines.append("")
-        day_costs = [ledger.fmt_usd(bucket["cost"], bucket["cost_known"])
-                     for bucket in days]
-        day_tokens = [ledger.fmt_tokens(views.total_tokens(bucket))
-                      for bucket in days]
-        cost_width = max(len(cost) for cost in day_costs)
-        tokens_width = max(len(tokens) for tokens in day_tokens)
-        # date, a space plus left edge, right edge, and the three spaces
-        # around the trailing figures take eleven cells together.
-        bar_width = OVERVIEW_WIDTH - 4 - 11 - tokens_width - cost_width
-        peak = max(bucket["cost"] for bucket in days) or 1.0
-        chart_rows = []
-        for bucket, tokens, cost in zip(days, day_tokens, day_costs):
-            filled = (max(1, round(bucket["cost"] / peak * bar_width))
-                      if bucket["cost"] else 0)
-            chart_rows.append(
-                f"{bucket['key'][5:]} ▕{'▄' * filled}{'┈' * (bar_width - filled)}▏"
-                f" {tokens:>{tokens_width}} {cost:>{cost_width}}")
-        lines.extend(frame("Cost Per Day", chart_rows))
+        lines += frame("Cost Per Day", day_rows(days, inner), width)
 
     expensive = sorted(views.task_buckets(rows),
                        key=lambda bucket: -bucket["cost"])[:5]
     if expensive:
         lines.append("")
-        task_costs = [ledger.fmt_usd(bucket["cost"], bucket["cost_known"])
-                      for bucket in expensive]
-        task_tokens = [ledger.fmt_tokens(views.total_tokens(bucket))
-                       for bucket in expensive]
-        cost_width = max(len(cost) for cost in task_costs)
-        tokens_width = max(len(tokens) for tokens in task_tokens)
-        label_width = OVERVIEW_WIDTH - 4 - tokens_width - cost_width - 2
-        task_rows = [
-            f"{views.label_of(bucket, label_width, views.UNKNOWN_LONG):<{label_width}}"
-            f" {tokens:>{tokens_width}} {cost:>{cost_width}}"
-            for bucket, tokens, cost in zip(expensive, task_tokens, task_costs)
-        ]
-        lines.extend(frame("Most Expensive Tasks", task_rows))
+        lines += frame("Most Expensive Tasks", task_rows(expensive, inner),
+                       width)
 
-    lines.extend([
-        "",
-        "Estimated from published API rates; subscription plans are not billed per token.",
-        "Run /token-cost days for the day table, or /token-cost tasks for every task.",
-    ])
+    lines.append("")
+    for note in ("Estimated from published API rates; subscription plans are"
+                 " not billed per token.",
+                 "Run /token-cost days for the day table, or /token-cost"
+                 " tasks for every task."):
+        lines += wrap(note, width)
     return "\n".join(lines)
 
 
-def render(columns, buckets, overrides=None) -> str:
-    """`overrides` replaces a TOTAL cell by header name."""
-    overrides = overrides or {}
-    headers = [c[0] for c in columns]
-    aligns = [c[1] for c in columns]
-    rows = [[str(c[2](b)) for c in columns] for b in buckets]
-    total = [
-        str(overrides[c[0]]) if c[0] in overrides
-        else (str(c[3](buckets)) if c[3] else "")
-        for c in columns
-    ]
-    total[0] = "TOTAL"
+def render(view, width: int = 0) -> str:
+    """A view's table, narrowed to `width` when it doesn't already fit.
 
-    grid = [headers] + rows + [total]
-    widths = [max(len(row[i]) for row in grid) for i in range(len(columns))]
+    The same fitting the UI does, from the same place: the prose column
+    gives space back first, then whole columns go in views.DROP_ORDER, and
+    the header still names the ones that survived. Rows are never dropped to
+    make a table fit -- a table you can see is short is better than one that
+    quietly isn't all there.
+
+    A table that already fits is left at its natural size. The UI stretches
+    those out to its right edge, but a chat message is not a pane with an
+    edge to reach, and padding a six-column table across ninety would only
+    put air between figures that belong side by side.
+    """
+    table = views.rendered(view)
+    cols, widths, total = table.fit(width or MAX_WIDTH * 4, grow=False)
+    headers = [c[0] for c in cols]
+    aligns = [c[1] for c in cols]
 
     def line(cells):
-        return "  ".join(
-            cell.rjust(w) if a == ">" else cell.ljust(w)
+        return (" " * views.GAP).join(
+            fit(cell, w).rjust(w) if a == ">" else fit(cell, w).ljust(w)
             for cell, w, a in zip(cells, widths, aligns)
         ).rstrip()
 
-    rule = "─" * (sum(widths) + 2 * (len(widths) - 1))
-    return "\n".join([line(headers)] + [line(r) for r in rows] + [rule, line(total)])
+    rows = ([table.cells[header][i] for header in headers]
+            for i in range(table.count))
+    rule = "─" * (sum(widths) + views.GAP * (len(widths) - 1))
+    return "\n".join([line(headers)] + [line(row) for row in rows]
+                     + [rule, line(total)])
 
 
-def summary_only(view) -> str:
+def summary_only(view, width: int = 0) -> str:
     """Headers and footer, for when the rows themselves cannot be printed.
 
     The header row comes along because a line of numbers with nothing naming
     the columns is a puzzle, not a summary.
     """
-    lines = render(view.columns, view.buckets, view.overrides).split("\n")
+    lines = render(view, width).split("\n")
     return "\n".join([lines[0], lines[-2], lines[-1]])
 
 
@@ -341,6 +570,11 @@ def main() -> int:
         i = args.index("--budget")
         budget = int(args[i + 1])
         del args[i:i + 2]
+    width = 0
+    if "--width" in args:
+        i = args.index("--width")
+        width = int(args[i + 1])
+        del args[i:i + 2]
 
     if any(a.lower() in ("ui", "tui") for a in args):
         print(launch_block(cwd))
@@ -363,7 +597,8 @@ def main() -> int:
         pass  # a sync failure must never stop the report rendering
 
     rows = ledger.read_ledger(ledger.ledger_path(cwd))
-    project = Path(cwd).name
+    # Resolved, because a relative --cwd has no name of its own to show.
+    project = Path(cwd).resolve().name
 
     if not rows:
         print(f"No token usage recorded yet for {project}.")
@@ -380,34 +615,42 @@ def main() -> int:
             return 0
 
     view = views.build(rows, mode, scope)
-    table = render(view.columns, view.buckets, view.overrides)
+    # Every table gets the same width the overview draws into: the tables
+    # land in the same pane and wrap in the same way when they overrun it.
+    width = report_width(width)
+    table = render(view, width)
 
     if imported:
         print(f"Imported {imported} earlier session(s) from transcripts on disk.")
         print()
     if show_overview:
-        output = overview(rows, project)
+        output = overview(rows, project, width)
         if budget and len(output) > budget:
-            print(f"Project: {project}    {view.tasks} tasks    {view.subtitle}")
+            for line in wrap(f"Project: {project}    {view.tasks} tasks"
+                             f"    {view.subtitle}", width):
+                print(line)
             print()
-            print(summary_only(view))
+            print(summary_only(view, width))
             print()
             print(budget_notice(view, output, "days", "overview"))
             return 0
         print(output)
         return 0
-    print(f"Project: {project}    {view.tasks} tasks    {view.subtitle}")
+    for line in wrap(f"Project: {project}    {view.tasks} tasks   "
+                     f" {view.subtitle}", width):
+        print(line)
     print()
     if budget and len(table) > budget:
-        print(summary_only(view))
+        print(summary_only(view, width))
         print()
         print(budget_notice(view, table))
         return 0
     print(table)
     print()
-    print("Estimated from published API rates; subscription plans are not billed per token.")
-    if view.hint:
-        print(view.hint)
+    for note in ("Estimated from published API rates; subscription plans are"
+                 " not billed per token.", view.hint):
+        for line in wrap(note, width):
+            print(line)
     return 0
 
 

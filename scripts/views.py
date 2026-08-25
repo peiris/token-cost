@@ -32,6 +32,20 @@ PERIODS = {"today": 1, "day": 1, "week": 7, "month": 30}
 
 MODES = ("days", "tasks", "sessions", "models")
 
+# The tabs both frontends present, in order: (label, view mode, period). The
+# UI makes them navigable; the report prints the same row as a signpost with
+# Overview marked. They live here so the two can never drift apart. Overview
+# is the one entry with no table behind it -- it is these views' figures
+# arranged, not a view of its own.
+TABS = [
+    ("Overview", "overview", None),
+    ("Today", "models", "today"),
+    ("This Week", "days", "week"),
+    ("This Month", "days", "month"),
+    ("All Tasks", "tasks", None),
+    ("Sessions", "sessions", None),
+]
+
 
 # --------------------------------------------------------------------------
 # cell formatting
@@ -118,6 +132,110 @@ NUMERIC_COLS = [
 # never dropped this way -- only columns, and the header says which survived.
 DROP_ORDER = ("CTX", "CACHE W", "CACHE R", "INPUT", "OUTPUT", "TASKS", "MODEL",
               "TIME", "REQS")
+
+
+# --------------------------------------------------------------------------
+# fitting a table to a width
+# --------------------------------------------------------------------------
+
+GAP = 2              # columns between table cells
+
+
+class Rendered:
+    """A view's cells, turned into text once, and the widths they fit into.
+
+    Rendering a cell means formatting a token count, pricing a bucket or
+    condensing a prompt, and a table does it for every row it holds -- three
+    thousand of them, to put twenty on screen. None of that changes between
+    frames, and none of it depends on the width of the terminal: the prose
+    column is capped at the ledger's own prompt length, never at the screen.
+
+    So the text is made once, per view, and stored by column. What the width
+    decides is only which columns survive and how wide each one is, which is
+    arithmetic over a handful of numbers -- cheap enough to redo while a
+    window is being dragged. Drawing a frame then costs the rows on screen
+    rather than the rows in the ledger.
+    """
+
+    def __init__(self, view):
+        self.columns = view.columns
+        self.count = len(view.buckets)
+        self.cells = {}      # header -> that column's cells, top to bottom
+        self.foot = {}       # header -> its TOTAL cell
+        self.widest = {}     # header -> the widest of the header and its cells
+        for header, _, cell_of, total_of in view.columns:
+            column = [str(cell_of(b)) for b in view.buckets]
+            self.cells[header] = column
+            self.foot[header] = (
+                str(view.overrides[header]) if header in view.overrides
+                else (str(total_of(view.buckets)) if total_of else ""))
+            self.widest[header] = max([len(header)] + [len(c) for c in column])
+        self.fits = {}       # (width, grow) -> (columns, widths, total)
+
+    def fit(self, width: int, grow: bool = True):
+        got = self.fits.get((width, grow))
+        if got is None:
+            got = self.fits[(width, grow)] = self._fit(width, grow)
+        return got
+
+    def _fit(self, width: int, grow: bool = True):
+        """Columns and widths that fit `width`.
+
+        The prose column flexes: it gives space back before any column is
+        dropped, and takes whatever is spare when there is room. Only when
+        squeezing it to its floor still isn't enough do columns start going,
+        in the order DROP_ORDER sets, and the header still names the
+        ones that survive. Rows are never dropped to make a table fit.
+        """
+        cols = list(self.columns)
+        flex_floor = max(6, min(18, width // 3))
+
+        while True:
+            headers = [c[0] for c in cols]
+            total = [self.foot[h] for h in headers]
+            total[0] = "TOTAL"
+            widths = [max(self.widest[h], len(t))
+                      for h, t in zip(headers, total)]
+
+            flex = next((headers.index(h) for h in ("TASK", "OPENED WITH")
+                         if h in headers), None)
+            used = sum(widths) + GAP * (len(cols) - 1)
+
+            if used > width and flex is not None:
+                # Take it out of the prose first: a shorter prompt costs less
+                # than a missing column of numbers.
+                give = min(used - width, max(0, widths[flex] - flex_floor))
+                widths[flex] -= give
+                used -= give
+
+            if used <= width or len(cols) <= 2:
+                break
+
+            victim = next((h for h in DROP_ORDER if h in headers), None)
+            if victim is None:
+                break
+            cols.pop(headers.index(victim))
+
+        if used < width and grow:
+            # Fill the width: prose column if there is one, otherwise the
+            # label column, which pushes the numbers out to the right edge
+            # where a full-width table wants them. A table printed into a
+            # chat message asks not to: there the width is a ceiling, and a
+            # short table padded out to it is a wall of trailing space.
+            widths[flex if flex is not None else 0] += width - used
+        return cols, widths, total
+
+
+def rendered(view) -> Rendered:
+    """A view's rendered cells, made on first sight of it and kept with it.
+
+    Kept on the view rather than in a cache of its own because a view is
+    built exactly when the ledger is reread -- so this is thrown away at
+    precisely the moment it stops being true, with nothing to invalidate.
+    """
+    if view.render is None:
+        view.render = Rendered(view)
+    return view.render
 
 
 # --------------------------------------------------------------------------
@@ -224,6 +342,40 @@ def session_buckets(rows: list) -> list:
 def total_tokens(bucket: dict) -> int:
     """Every counter in one figure: what the model actually read and wrote."""
     return sum(bucket.get(k, 0) for k in ledger.TOKEN_KEYS)
+
+
+# How wide a model's name is allowed to be on the overview's Models panel.
+# Long enough for the longest id anyone has run, short enough that a project
+# using only short names doesn't leave a column of air on every row.
+MODEL_WIDTH = 14
+
+
+def model_figures(models: list, width: int):
+    """How a Models panel `width` columns wide lays its rows out.
+
+    (name width, tallies, token figures, costs) -- tallies being empty
+    strings when there was no room for the task counts.
+
+    A narrow panel gives up words before it gives up figures -- "Tokens"
+    first, then the count itself -- rather than truncate a model's name into
+    an ellipsis. It is the order of surrender DROP_ORDER sets for the
+    tables: what a row is about is which model it is, and what it is worth
+    is what it cost. Both frontends ask here, so their panels agree down to
+    the column.
+    """
+    costs = [ledger.fmt_usd(b["cost"], b["cost_known"]) for b in models]
+    figures = [ledger.fmt_tokens(total_tokens(b)) for b in models]
+    spelt = [f"{f} Tokens" for f in figures]
+    tallies = [f"{b['tasks']:>6} Tasks" for b in models]
+    blank = [""] * len(models)
+    name_w = min(MODEL_WIDTH, max(len(b["key"]) for b in models))
+    cost_w = max(len(c) for c in costs)
+    for tokens, counts in ((spelt, tallies), (figures, tallies),
+                           (spelt, blank), (figures, blank)):
+        if (name_w + max(len(c) for c in counts) + GAP
+                + max(len(t) for t in tokens) + 3 + cost_w) <= width:
+            break
+    return name_w, counts, tokens, costs
 
 
 def count_tasks(rows: list) -> int:

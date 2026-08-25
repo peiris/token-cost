@@ -7,26 +7,40 @@ consumed and appends it to a private ledger outside your repo. `/token-cost`
 renders that ledger as a visual overview.
 
 ```
-╭─ ▂▄▆█  Claude Token Cost  ·  token-cost ───────────────────────────────────────────────────╮
-│ ▌ Overview     Today     This Week     This Month     All Tasks     Sessions               │
-╰────────────────────────────────────────────────────────────────────────────────────────────╯
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│                   ▂▄▆█  Claude Token Cost v0.10.16  ·  token-cost                    │
+│                                                                                      │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│  ▌ Overview     Today     This Week     This Month     All Tasks     Sessions        │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
 
-╭─ Project ───────────────────╮  ╭─ Models ──────────────────────────────────────────────────╮
-│ 16 Tasks                    │  │ opus-5       16 Tasks   21.1M Tokens   $15.85             │
-│ 2026-08-23 → 2026-08-25     │  │ haiku-4-5     3 Tasks    1.2M Tokens    $0.29             │
-│ 22.3M Tokens                 │  │                                                         │
-│ $16.14                       │  │                                                         │
-╰─────────────────────────────╯  ╰───────────────────────────────────────────────────────────╯
+╭─ Project ──────────────────╮  ╭─ Models ─────────────────────────────────────────────╮
+│                            │  │                                                      │
+│  9 Tasks                   │  │  opus-5        7 Tasks        21.1M Tokens   $14.53  │
+│  2026-08-23 → 2026-08-25   │  │  haiku-4-5     2 Tasks         1.3M Tokens    $0.29  │
+│  22.4M Tokens              │  │                                                      │
+│  $14.82                    │  ╰──────────────────────────────────────────────────────╯
+│                            │
+╰────────────────────────────╯
 
-╭─ Cost Per Day ─────────────────────────────────────────────────────────────────────────────╮
-│ 08-23 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▏ 9.9M $7.25 │
-│ 08-24 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏ 7.5M $5.41 │
-│ 08-25 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏ 4.9M $3.48 │
-╰────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Cost Per Day ───────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  08-23 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▏  10.4M   $7.25  │
+│  08-24 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏   6.6M   $4.16  │
+│  08-25 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏   5.4M   $3.41  │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
 
-╭─ Most Expensive Tasks ─────────────────────────────────────────────────────────────────────╮
-│ Import history automatically on session start instead of asking        3.6M $2.70          │
-╰────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ Most Expensive Tasks ───────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  Import history automatically on session start instead of asking       3.9M   $2.70  │
+│  Record slash commands under the prompt that ran them                  3.4M   $2.31  │
+│  Price the 1M context window separately                                3.1M   $2.24  │
+│  Add a per-task breakdown to the report                                3.3M   $2.20  │
+│  Give the overview a chart of spend per day                            3.0M   $2.05  │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 ## Why
@@ -279,43 +293,48 @@ clean slate.
 
 ## The UI
 
-`/token-cost` prints a chat-safe version of the Overview tab into the
-conversation. `token-cost` opens the same ledger as a full-screen app, with
-tabs and no limit on how much it can show:
+`/token-cost` prints the Overview tab into the conversation — the same
+chrome, the same panels, the same rows, drawn to fit the pane it lands in.
+Claude Code hands the report a pipe rather than a terminal, so it finds the
+width by asking the terminal Claude Code itself is attached to, and every
+panel, bar and column is sized from that. A panel too narrow to hold its
+figures gives up words first and whole columns after, in that order; it
+never gives up a row.
+
+`token-cost` opens the same ledger as a full-screen app, with tabs and no
+limit on how much it can show:
 
 ```
-  ╭────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-  │                                                                                                        │
-  │                             ▂▄▆█  Claude Token Cost v0.9.0  ·  token-cost                              │
-  │                                                                                                        │
-  ├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-  │  ▌ Overview     Today     This Week     This Month     Tasks     Sessions                              │
-  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │                                                                                                      │
+  │                           ▂▄▆█  Claude Token Cost v0.10.16  ·  token-cost                            │
+  │                                                                                                      │
+  ├──────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │  ▌ Overview     Today     This Week     This Month     All Tasks     Sessions                        │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
-  ╭─ Project ───────────────────────╮  ╭─ Models ──────────────────────────────────────────────────────────╮
-  │                                 │  │                                                                   │
-  │  16 Tasks                       │  │  opus-5            16 Tasks                21.1M Tokens   $15.85  │
-  │  2026-08-23 → 2026-08-25        │  │  haiku-4-5          3 Tasks                 1.2M Tokens    $0.29  │
-  │  22.3M Tokens                   │  │                                                                   │
-  │  $16.14                         │  │                                                                   │
-  │                                 │  │                                                                   │
-  ╰─────────────────────────────────╯  ╰───────────────────────────────────────────────────────────────────╯
+  ╭─ Project ──────────────────────╮  ╭─ Models ─────────────────────────────────────────────────────────╮
+  │                                │  │                                                                  │
+  │  89 Tasks                      │  │  opus-5 (1m)     39 Tasks               168.1M Tokens   $105.51  │
+  │  2026-08-24 → 2026-08-26       │  │  fable-5 (1m)    11 Tasks                42.3M Tokens    $58.38  │
+  │  280.8M Tokens                 │  │  fable-5         16 Tasks                21.0M Tokens    $43.40  │
+  │  $251.97                       │  │  opus-5          25 Tasks                46.4M Tokens    $42.07  │
+  │                                │  │  sonnet-5         4 Tasks                 2.1M Tokens     $2.38  │
+  ╰────────────────────────────────╯  │                                                                  │
+                                      ╰──────────────────────────────────────────────────────────────────╯
 
-  ╭─ Cost Per Day ─────────────────────────────────────────────────────────────────────────────────────────╮
-  │                                                                                                        │
-  │  08-23 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▏  9.9M   $7.25  │
-  │  08-24 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏  7.5M   $5.41  │
-  │  08-25 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏  4.9M   $3.48  │
-  │                                                                                                        │
-  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  ╭─ Cost Per Day ───────────────────────────────────────────────────────────────────────────────────────╮
+  │  08-25 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▏  224.2M   $204.03  │
+  │  08-26 ▕▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏   34.5M    $31.39  │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
-  ╭─ Most Expensive Tasks ─────────────────────────────────────────────────────────────────────────────────╮
-  │                                                                                                        │
-  │  Import history automatically on session start instead of asking                         3.6M   $2.70  │
-  │                                                                                                        │
-  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  ╭─ Most Expensive Tasks ───────────────────────────────────────────────────────────────────────────────╮
+  │                                                                                                      │
+  │  Can we migrate the output to TUI instead of plain table like what we have? I'd l…   24.7M   $16.48  │
+  │                                                                                                      │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
-  Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit
+  Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q/Esc Quit
 ```
 
 Tabs: **Overview**, **Today**, **This Week**, **This Month**, **All Tasks**,
@@ -331,33 +350,36 @@ The Tasks tab is the one the conversation can't carry — every task on record,
 scrollable, however many there are:
 
 ```
-  ╭────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-  │                                                                                                        │
-  │                             ▂▄▆█  Claude Token Cost v0.9.0  ·  token-cost                              │
-  │                                                                                                        │
-  ├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-  │    Overview     Today     This Week     This Month   ▌ Tasks     Sessions                              │
-  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────────────╮
+  │                                                                                                      │
+  │                           ▂▄▆█  Claude Token Cost v0.10.16  ·  token-cost                            │
+  │                                                                                                      │
+  ├──────────────────────────────────────────────────────────────────────────────────────────────────────┤
+  │    Overview     Today     This Week     This Month   ▌ All Tasks     Sessions                        │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
-  ╭─ Every Task ───────────────────────────────────────────────────────────────────────────────────────────╮
-  │                                                                                                        │
+  ╭─ Every Task ─────────────────────────────────────────────────────────────────────────────────────────╮
   │  ╭────────────────────────────────────────────────────────────────────────────────────────────────╮  │
-  │  │  Press / or click, then type to filter tasks                                                     │  │
+  │  │  Press / or click, then type to filter tasks                                                   │  │
   │  ╰────────────────────────────────────────────────────────────────────────────────────────────────╯  │
-  │  WHEN         TASK                                 MODEL      INPUT  OUTPUT  CACHE R  CACHE W  EST. $  │
-  │  08-25 10:41  /token-cost tasks                    opus-5         1     189    26.2k     3.5k   $0.05  │
-  │  08-25 10:22  Add a per-task breakdown to the re…  opus-5        33    4.6k   951.2k    26.4k   $0.85  │
-  │  08-25 09:58  Slash commands should record as th…  opus-5        17    1.4k   446.6k     3.5k   $0.29  │
-  │  08-25 09:23  Save the prompt that started each …  opus-5 +1     47   11.5k     3.4M    74.7k   $2.28  │
-  │  08-24 13:31  Add update instructions to the REA…  opus-5        10    1.2k   427.4k     3.4k   $0.28  │
-  │  08-24 13:06  Publish the plugin to the marketpl…  opus-5        25    5.4k     1.4M    15.7k   $1.02  │
-  │  08-24 10:05  Add a today view broken down by mo…  opus-5        20    4.6k     1.5M    17.6k   $1.02  │
-  │  08-24 09:33  /token-cost sessions                 opus-5         1     202    28.7k     5.2k   $0.07  │
-  │  ────────────────────────────────────────────────────────────────────────────────────────────────────  │
-  │  TOTAL                                                          393   81.4k    21.8M   474.4k  $16.14  │
-  │                                                                                                        │
-  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-  Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit
+  │  TIME         TASK                         MODEL           INPUT  OUTPUT  CACHE R  CACHE W   EST. $  │
+  │  08-26 03:35  [image] bro the tty UI suc…  opus-5 +1         152   89.0k    11.4M   195.3k    $9.86  │
+  │  08-26 00:44  yes implement, but dont co…  sonnet-5            4   22.3k   365.4k    30.5k    $0.63  │
+  │  08-26 00:37  continue                     opus-5             16    3.5k     2.0M     3.7k    $1.15  │
+  │  08-26 00:29  but claude code shows "Chu…  sonnet-5           10   33.3k   797.7k    30.8k    $0.85  │
+  │  08-26 00:24  but claude code shows "Chu…  sonnet-5            4    3.6k   285.4k     5.0k    $0.11  │
+  │  08-26 00:23  Doesn't claude has an API …  sonnet-5            8    4.4k   432.8k    99.7k    $0.79  │
+  │  08-26 00:07  continue                     opus-5              6    8.0k   278.3k     8.3k    $0.42  │
+  │  08-26 00:06  continue                     opus-5              8    8.0k   286.2k    62.9k    $0.97  │
+  │  08-26 00:05  continue                     opus-5 +1         194  116.4k    16.9M   226.5k   $13.62  │
+  │  08-26 00:02  /goal I Need TUI to be 60f…  fable-5            10    4.7k   225.8k    55.8k    $1.58  │
+  │  08-26 00:00  Bro publish your work and …  fable-5            12    8.1k   440.4k    28.1k    $1.41  │
+  │  08-25 23:59  Bro publish your work and …  fable-5            18    2.0k   549.5k     4.3k    $0.74  │
+  │  ──────────────────────────────────────────────────────────────────────────────────────────────────  │
+  │  TOTAL                                                      3.2k    1.4M   276.3M     3.2M  $251.97  │
+  │                                                                                                      │
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯
+  Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q/Esc Quit
 ```
 
 ### Starting it
@@ -515,6 +537,17 @@ passes only when all three agree:
   (`lastModelUsage.costUSD` in `~/.claude.json`) is re-priced through our
   rate table and must land inside the band the two cache-write TTLs allow.
   Two implementations agreeing on the money, one of them Anthropic's.
+
+`dev/smoke_report.py` holds the chat report to the one property a report
+printed into someone else's pane has to have: it fits. Every panel and every
+table is rendered at every width from the layout's floor to past its
+ceiling, against synthetic ledgers and this project's real one, and each
+render is measured — no line over the width, no frame that stops short of
+its own border, no row dropped to make a table fit. What it can't say is
+whether the numbers are right; that's the verifier above.
+
+`dev/smoke_tui.py` drives the real UI under a pseudo-terminal — every tab,
+the mouse, the search input, sizes from a postage stamp to a wall.
 
 `dev/bench_tui.py` does the same for the UI, which has its own kind of
 correctness: a table you can't scroll smoothly is a table you don't read. It
