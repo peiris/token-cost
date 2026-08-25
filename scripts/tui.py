@@ -471,15 +471,24 @@ def panel(sc: Screen, y: int, x: int, w: int, h: int, title: str) -> None:
 PAD_X = 2
 
 
-def inside(x: int, y: int, w: int, h: int, min_content: int = 1):
+def inside(x: int, y: int, w: int, h: int, min_content: int = 1,
+           pad_top: bool = True, pad_bottom: bool | None = None):
     """(x, y, width, height) of the content area of a box drawn at x, y.
 
     Every box gets its blank line top and bottom; it is given up only when
     the box would then have less than `min_content` rows left to show. A
     table needs four (header, a row, rule, total), a panel needs one.
     """
-    pad_y = 1 if h - 4 >= min_content else 0
-    return x + 1 + PAD_X, y + 1 + pad_y, w - 2 - 2 * PAD_X, h - 2 - 2 * pad_y
+    if pad_bottom is None:
+        pad_bottom = pad_top
+    spare = h - 2 - min_content
+    if pad_top and pad_bottom:
+        top = bottom = 1 if spare >= 2 else 0
+    else:
+        top = 1 if pad_top and spare >= 1 else 0
+        bottom = 1 if pad_bottom and spare - top >= 1 else 0
+    return (x + 1 + PAD_X, y + 1 + top, w - 2 - 2 * PAD_X,
+            h - 2 - top - bottom)
 
 
 def box_for(content: int) -> int:
@@ -606,17 +615,17 @@ def draw_search_input(sc: Screen, search: Search, tab: int, y: int, x: int,
                       width: int, boxed: bool = False) -> int:
     """A persistent search input inside a task or session table."""
     muted = curses.color_pair(C_MUTED)
-    padding = 2
-    field_x = x + padding
-    field_w = max(0, width - padding * 2)
-    inner_w = max(0, field_w - 2 - padding * 2)
-    text_x = field_x + 1 + padding
+    text_padding = 2
+    field_x = x
+    field_w = max(0, width)
+    inner_w = max(0, field_w - 2 - text_padding * 2)
+    text_x = field_x + 1 + text_padding
     query = search.query(tab)
     row = y + 1 if boxed else y
 
     # Keep the field chrome quiet so the active query is the thing that draws
-    # the eye. Extra space outside and inside the border keeps it from
-    # touching the table frame or looking like another column.
+    # the eye. The field fills the table content width; the text keeps a
+    # comfortable inset inside its border.
     sc.search_hit = (tab, y, field_x, field_w, 3 if boxed else 1)
     if boxed:
         sc.put(y, field_x, CORNERS[0] + RULE * max(0, field_w - 2)
@@ -660,19 +669,22 @@ def draw_boxed_table(sc: Screen, view, top: int, left: int, width: int,
     if height < 6:                       # box, header, rule, total, one row
         if has_search and height > 2:
             draw_search_input(sc, search, search_tab, top, left, width)
-            return draw_table(sc, view, top + 1, left, width, height - 1,
-                              offset)
+            gap = 1 if height > 3 else 0
+            return draw_table(sc, view, top + 1 + gap, left, width,
+                              height - 1 - gap, offset)
         return draw_table(sc, view, top, left, width, height, offset)
     panel(sc, top, left, width, height, title)
     # A roomy table gets a three-row input box; compact tables keep a one-row
     # control so at least a couple of records remain visible.
     boxed = has_search and height >= 10
     input_rows = 3 if boxed else 1
-    minimum = 4 + input_rows if has_search else 4
-    x, y, w, h = inside(left, top, width, height, min_content=minimum)
+    gap = 1 if has_search else 0
+    minimum = 4 + input_rows + gap if has_search else 4
+    x, y, w, h = inside(left, top, width, height, min_content=minimum,
+                         pad_top=not has_search, pad_bottom=has_search)
     if has_search:
         used = draw_search_input(sc, search, search_tab, y, x, w, boxed)
-        y, h = y + used, h - used
+        y, h = y + used + gap, h - used - gap
     return draw_table(sc, view, y, x, w, h, offset)
 
 
@@ -925,13 +937,14 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int,
 
     if not view.buckets:
         if built.query:
-            height = min(room, box_for(4))
+            height = min(room, box_for(5))
             panel(sc, top, left, width, height, label)
-            nx, ny, nw, _ = inside(left, top, width, height, min_content=4)
+            nx, ny, nw, _ = inside(left, top, width, height, min_content=5,
+                                   pad_top=False, pad_bottom=True)
             boxed = height >= 8
             used = draw_search_input(sc, search, tab, ny, nx, nw, boxed)
             message = f'No {SEARCHABLE[tab].lower()} match "{built.query}".'
-            sc.put(ny + used, nx, message, curses.color_pair(C_MUTED))
+            sc.put(ny + used + 1, nx, message, curses.color_pair(C_MUTED))
         else:
             panel(sc, top, left, width, box_for(1), label)
             nx, ny, _, _ = inside(left, top, width, box_for(1))
@@ -946,7 +959,7 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int,
         split_h = box_for(len(summary.buckets) + 3)  # header, rows, rule, total
 
     searchable = tab in SEARCHABLE and search is not None
-    if not main.buckets or room < split_h + (11 if searchable else 8):
+    if not main.buckets or room < split_h + (12 if searchable else 8):
         shown = draw_boxed_table(sc, view, top, left, width, room, offset,
                                  view.subtitle, search, tab)
         return shown, len(view.buckets)
