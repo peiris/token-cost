@@ -509,10 +509,10 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
 # chrome
 # --------------------------------------------------------------------------
 
-# The gutter each tab's label sits in: the marker bar, then room to breathe
-# before the text. Inactive tabs keep the same inset so the row stays on one
+# The gutter each tab's label sits in: the marker bar, then a column before
+# the text. Inactive tabs keep the same inset so the row stays on one
 # rhythm whichever tab is selected.
-LABEL_INSET = 3
+LABEL_INSET = 2
 
 # Between one tab and the next. Wide enough that the names read as separate
 # items rather than a sentence, narrow enough to keep them all on the row.
