@@ -1,0 +1,27 @@
+{
+  "description": "Record per-task token usage into a private per-project ledger, and keep it in sync automatically",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/record.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/record.py\" --sync",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

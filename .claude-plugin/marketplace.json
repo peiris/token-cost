@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "token-cost",
+  "description": "Claude Code plugin that tracks token usage and estimated cost per project",
+  "owner": {
+    "name": "Kasun Peiris",
+    "email": "peiris@kasun.io"
+  },
+  "plugins": [
+    {
+      "name": "token-cost",
+      "description": "Records token usage for every completed task into a private per-project ledger, viewable with /token-cost",
+      "source": "./"
+    }
+  ]
+}

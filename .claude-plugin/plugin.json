@@ -1,0 +1,18 @@
+{
+  "name": "token-cost",
+  "version": "0.1.0",
+  "description": "Records token usage for every completed task into a private per-project ledger, and shows it as a table with /token-cost.",
+  "author": {
+    "name": "Kasun Peiris",
+    "email": "peiris@kasun.io"
+  },
+  "keywords": [
+    "tokens",
+    "cost",
+    "usage",
+    "telemetry"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/peiris/token-cost",
+  "repository": "https://github.com/peiris/token-cost"
+}
