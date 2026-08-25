@@ -247,9 +247,19 @@ def effective_rates(model: str, bill: dict | None = None):
 
     rates = entry
     if bill.get("long_context"):
-        rates = entry.get("long_context")
-        if rates is None:
+        block = entry.get("long_context")
+        if block is None:
             return None
+        # A block is usually just a threshold: the marker records that the
+        # request ran past 200K, and base rates apply, because that is what
+        # Anthropic charges on every current 1M model. A block carrying all
+        # five rate keys is a real premium tier (sonnet-4-5's retired beta)
+        # and takes over; one carrying some of the five is a half-filled
+        # table, and prices as unknown rather than as a guess.
+        if any(k in block for k in TOKEN_KEYS):
+            if not all(k in block for k in TOKEN_KEYS):
+                return None
+            rates = block
     if bill.get("speed"):
         rates = (entry.get("speed") or {}).get(bill["speed"])
         if rates is None:
@@ -286,7 +296,7 @@ def bill_note(bill: dict | None) -> str:
         return ""
     marks = [bill[k] for k in ("speed", "geo", "tier") if bill.get(k)]
     if bill.get("long_context"):
-        marks.append("long")
+        marks.append("1m")
     return " ".join(marks)
 
 
@@ -333,6 +343,12 @@ def usage_of(entry: dict) -> dict | None:
         "cache_write_1h": creation.get("ephemeral_1h_input_tokens") or 0,
     }
     rec["bill"] = bill_of(model, u, rec)
+    # The request's whole prompt, in tokens. This is the figure the 200K
+    # tier is measured against, and the only per-request record of how far
+    # into the 1M window a session actually reached -- the configured model
+    # id (claude-opus-5[1m]) never lands in the transcript, but every
+    # request's own usage block proves the window it ran in.
+    rec["ctx"] = input_total(rec)
     return rec
 
 
@@ -551,12 +567,16 @@ def group_records(records: list[dict]) -> list[dict]:
         if row is None:
             row = groups[key] = {
                 "model": rec["model"], "kind": rec["kind"], "bill": bill,
-                "ts": rec["ts"], "reqs": 0,
+                "ts": rec["ts"], "reqs": 0, "ctx": 0,
                 **{k: 0 for k in TOKEN_KEYS},
             }
         row["reqs"] += 1
         for k in TOKEN_KEYS:
             row[k] += rec[k]
+        # Peak, not sum: token counters accumulate across requests, but a
+        # context window is a size one request either fits in or doesn't.
+        if (rec.get("ctx") or 0) > row["ctx"]:
+            row["ctx"] = rec["ctx"]
         if rec["ts"] and (not row["ts"] or rec["ts"] > row["ts"]):
             row["ts"] = rec["ts"]
     return list(groups.values())
@@ -659,12 +679,17 @@ def aggregate(rows: list[dict], key_fn) -> list[dict]:
             b = buckets[key] = {
                 "key": key, "tasks": set(), "cost": 0.0,
                 "cost_known": True, "first_ts": None, "prompt": "",
-                "models": {},
+                "models": {}, "ctx": 0,
                 **{k: 0 for k in TOKEN_KEYS},
             }
         b["tasks"].add((row.get("session"), row.get("turn")))
         for k in TOKEN_KEYS:
             b[k] += row.get(k, 0)
+        # Rows written before ctx existed can still yield it when they hold
+        # exactly one request -- the row's sums then ARE that request.
+        ctx = row.get("ctx") or (input_total(row) if row.get("reqs") == 1 else 0)
+        if ctx > b["ctx"]:
+            b["ctx"] = ctx
         if row.get("cost_usd") is None:
             b["cost_known"] = False
         else:

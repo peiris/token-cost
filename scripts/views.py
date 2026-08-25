@@ -119,7 +119,7 @@ NUMERIC_COLS = [
 # writes are the smallest number on the row and input is usually two digits
 # next to millions of cached tokens, so they are the least missed. Rows are
 # never dropped this way -- only columns, and the header says which survived.
-DROP_ORDER = ("CACHE W", "CACHE R", "INPUT", "OUTPUT", "TASKS", "MODEL",
+DROP_ORDER = ("CTX", "CACHE W", "CACHE R", "INPUT", "OUTPUT", "TASKS", "MODEL",
               "STARTED", "REQS")
 
 
@@ -265,8 +265,17 @@ def build(rows, mode, scope="", label_width=None, unknown="—") -> View:
         )
 
     if mode == "models":
+        # Peak context: the largest single prompt each model was handed.
+        # Beyond 200K the model was in 1M-window territory and its rows say
+        # so -- opus-5 (1m) -- and this column says how deep. A dash means
+        # rows from before the recorder measured it, not zero.
+        ctx_col = ("CTX", ">",
+                   lambda b: ledger.fmt_tokens(b["ctx"]) if b.get("ctx") else "—",
+                   lambda bs: ledger.fmt_tokens(max(b.get("ctx") or 0 for b in bs))
+                   if any(b.get("ctx") for b in bs) else "—")
         return View(
-            [("MODEL", "<", lambda b: b["key"], None)] + NUMERIC_COLS,
+            [("MODEL", "<", lambda b: b["key"], None)]
+            + NUMERIC_COLS[:-1] + [ctx_col, NUMERIC_COLS[-1]],
             model_buckets(rows), scope, tasks,
             "Run /token-cost tasks for a per-task breakdown.",
         )

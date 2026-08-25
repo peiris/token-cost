@@ -443,18 +443,67 @@ rate never reads as a model that got expensive. A modifier with no known
 factor prices as `?`; a modifier exists because it changes the price, so
 guessing it away as standard is the one answer certain to be wrong.
 
+### 1M context
+
+Running a session on a 1M-context model — `claude-opus-5[1m]` in the model
+picker — never shows up in the transcript's model id: Claude Code stores the
+API's response, and the API answers with the canonical `claude-opus-5`. Hooks
+don't carry it either (only `SessionStart` may name a model, undocumented to
+survive a mid-session `/model` switch). What every request *does* carry is
+its own usage block, and that is the stronger record: a prompt of more than
+200K tokens can only have run in the 1M window, and the usage block counts
+exactly how many tokens each request sent.
+
+So the recorder measures every request against the 200K line. One that
+crosses it is recorded with `bill: {"long_context": true}` and reports as its
+own row — `opus-5 (1m)` — and every row carries `ctx`, the largest single
+prompt among its requests, which the by-model views show as `CTX`:
+
+```
+MODEL         TASKS  INPUT  OUTPUT  CACHE R  CACHE W     CTX   EST. $
+opus-5           54   1.1k  643.5k   171.9M     1.5M  147.8k  $116.59
+opus-5 (1m)       2     18    9.1k     4.3M    15.2k  685.8k    $3.12
+```
+
+What the split costs is the same per token, and that is verified two ways,
+not assumed: Anthropic's pricing page states that Claude 4.6+ include the
+full 1M window at standard rates ("a 900k-token request is billed at the same
+per-token rate as a 9k-token request"), and Claude Code's own per-project
+`costUSD` (in `~/.claude.json`, keyed by the `[1m]` id) reconstructs to
+exactly the standard rate table against the token counts stored beside it.
+The one model that ever did bill a premium above 200K — Sonnet 4.5's retired
+1M beta — carries its real tier rates in `pricing.json` ($6/$22.50 against
+$3/$15), so an old transcript from that era backfills at what it actually
+cost. If a premium ever returns, it's rate keys on a model's existing
+`long_context` block — a data edit the recorder already knows how to apply.
+
+## Proving it
+
+`dev/verify_ledger.py` re-derives the ledger three independent ways, and
+passes only when all three agree:
+
+- **Arithmetic** — every stored row's dollars recompute from its own token
+  counts, billing modifiers, and the rate table.
+- **Replay** — every session with a surviving transcript is re-scanned to
+  exactly the byte offsets the recorder stopped at, and must reproduce the
+  ledger's tokens, request counts, and dollars to the row.
+- **Cross-check** — Claude Code's own per-project cost accounting
+  (`lastModelUsage.costUSD` in `~/.claude.json`) is re-priced through our
+  rate table and must land inside the band the two cache-write TTLs allow.
+  Two implementations agreeing on the money, one of them Anthropic's.
+
+`--repair` rebuilds any session the replay proves wrong from its transcript,
+under the same lock the recorder uses.
+
 ## Limits
 
 - **Costs are estimates** computed from published API rates. On a subscription
   plan nothing is billed per token, so read the figure as "what this would
   have cost on the API".
-- **Long context is not a premium**, so there is nothing to miss: Claude 4.6
-  and later include the full 1M window at standard pricing — a 900k-token
-  request is billed at the same per-token rate as a 9k one. The Sonnet 4.5
-  beta that did charge more above 200K is retired. Should a tier ever return,
-  `pricing.json` takes a `long_context: {threshold, …}` block per model and
-  the recorder measures each request's own input against it — a data edit,
-  not a code change.
+- **Rows recorded before v0.9.2 predate the `(1m)` marker** and keep their
+  plain model label; their dollars were already exact, because 1M usage bills
+  at standard rates (see *1M context* above). Where such a row holds a single
+  request, its peak context is derived after the fact and still feeds `CTX`.
 - **Imported task counts are approximate** — turn boundaries are
   reconstructed from the transcript. Token and cost totals are exact.
 - **A session's own hooks load at startup**, so a plugin installed or updated

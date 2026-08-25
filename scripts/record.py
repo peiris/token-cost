@@ -43,6 +43,7 @@ def rows_for(records, session_id, turn, prompt=""):
             "model": group["model"],
             "kind": group["kind"],
             "reqs": group["reqs"],
+            "ctx": group.get("ctx", 0),
             "cost_usd": ledger.cost_of(group["model"], tokens, bill),
             **tokens,
         }
