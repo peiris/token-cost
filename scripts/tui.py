@@ -514,6 +514,10 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
 # rhythm whichever tab is selected.
 LABEL_INSET = 3
 
+# Between one tab and the next. Wide enough that the names read as separate
+# items rather than a sentence, narrow enough to keep them all on the row.
+NAV_GAP = 3
+
 
 def draw_nav(sc: Screen, tab: int, row: int, x: int, width: int,
              band_top: int = None, band_rows: int = 1) -> None:
@@ -529,20 +533,26 @@ def draw_nav(sc: Screen, tab: int, row: int, x: int, width: int,
     muted = curses.color_pair(C_MUTED)
     band_top = row if band_top is None else band_top
 
-    slot = width // len(labels)
-    # Give up the qualifier before giving up the row: "Week" in its place
-    # tells you more than one tab's name and a counter.
+    # Left-aligned, each name in its own gutter: the marker column plus the
+    # room before the text. Every tab reserves that gutter whether or not it
+    # is the selected one, so the row doesn't shift sideways as you move
+    # along it.
+    def span_of(names, gap):
+        return (sum(LABEL_INSET + len(name) for name in names)
+                + gap * (len(names) - 1))
+
+    # Give up the qualifier, then the breathing space, before giving up the
+    # row: "Week" in its place tells you more than one name and a counter.
     short = [label.replace("This ", "") for label in labels]
-    chosen, inset = None, LABEL_INSET
-    for names in (labels, short):
-        longest = max(len(name) for name in names)
-        if slot >= longest + 2:            # a column of air either side
-            chosen = names
-            inset = min(LABEL_INSET, slot - longest - 1)
+    chosen = gap = None
+    for names, spacing in ((labels, NAV_GAP), (short, NAV_GAP),
+                           (short, NAV_GAP - 1)):
+        if span_of(names, spacing) <= width:
+            chosen, gap = names, spacing
             break
 
     if chosen is None:
-        place = f"{tab + 1}/{len(TABS)}"   # too tight to spread: name this one
+        place = f"{tab + 1}/{len(TABS)}"   # too tight to lay out: name this one
         centred(sc, row, x, width, [
             (LEFT_ARROW + " ", muted),
             (labels[tab], accent | curses.A_BOLD),
@@ -551,15 +561,15 @@ def draw_nav(sc: Screen, tab: int, row: int, x: int, width: int,
         ])
         return
 
-    spare = width - slot * len(labels)     # spread the remainder, don't pool it
+    at = x
     for i, label in enumerate(chosen):
-        at = x + i * slot + min(i, spare)
         if i == tab:
             for line in range(band_top, band_top + band_rows):
                 sc.put(line, at, MARKER, accent)
-            sc.put(row, at + inset, label, accent | curses.A_BOLD)
+            sc.put(row, at + LABEL_INSET, label, accent | curses.A_BOLD)
         else:
-            sc.put(row, at + inset, label, muted)
+            sc.put(row, at + LABEL_INSET, label, muted)
+        at += LABEL_INSET + len(label) + gap
 
 
 def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
