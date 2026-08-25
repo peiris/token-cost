@@ -117,7 +117,7 @@ NUMERIC_COLS = [
 # next to millions of cached tokens, so they are the least missed. Rows are
 # never dropped this way -- only columns, and the header says which survived.
 DROP_ORDER = ("CTX", "CACHE W", "CACHE R", "INPUT", "OUTPUT", "TASKS", "MODEL",
-              "STARTED", "REQS")
+              "TIME", "REQS")
 
 
 # --------------------------------------------------------------------------
@@ -236,7 +236,7 @@ def build(rows, mode, scope="", label_width=None, unknown="—") -> View:
     if mode == "tasks":
         width = label_width or TASK_WIDTH
         return View(
-            [("WHEN", "<", started, None),
+            [("TIME", "<", started, None),
              ("TASK", "<", lambda b: label_of(b, width, unknown), None),
              ("MODEL", "<", models_cell, None)]
             + NUMERIC_COLS[1:],   # a task counting its own tasks says "1" forever
@@ -254,7 +254,7 @@ def build(rows, mode, scope="", label_width=None, unknown="—") -> View:
             subtitle += f", {scope}"
         return View(
             [("SESSION", "<", lambda b: b["key"][:8], None),
-             ("STARTED", "<", started, None),
+             ("TIME", "<", started, None),
              ("OPENED WITH", "<", lambda b: label_of(b, width, unknown), None)]
             + NUMERIC_COLS,
             buckets, subtitle, tasks,

@@ -34,6 +34,10 @@ sit on disk.
 The author's own Claude Code runs the installed plugin, not this
 checkout, so a release the local install never received changed nothing.
 
+- **Publish without being asked.** Finishing a change means releasing
+  it: once the work is done and verified, run the full publish sequence
+  below as part of the same task — don't stop at the working tree and
+  offer to release.
 - Publish = bump the plugin version, commit, push, then
   `claude plugin update token-cost@token-cost` — the bare name doesn't
   resolve; the `@token-cost` marketplace suffix is required — and a
