@@ -1,6 +1,6 @@
 ---
 description: Show token usage and estimated cost for this project
-argument-hint: "[sessions|today]"
+argument-hint: "[tasks|sessions|today]"
 allowed-tools: Bash(python3:*)
 ---
 

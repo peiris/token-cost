@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,6 +24,11 @@ _ROOT_OVERRIDE = None  # tests point this at a temp directory
 # because a 1-hour write costs 2x base input while a 5-minute write costs
 # 1.25x -- collapsing them would quietly under-bill every long session.
 TOKEN_KEYS = ("input", "output", "cache_read", "cache_write_5m", "cache_write_1h")
+
+# How long a task label may be in the ledger. Long enough that a truncated
+# prompt still identifies the task, short enough that the ledger stays a
+# usage record rather than a copy of the conversation.
+PROMPT_CAP = 140
 
 # How many recent request ids to carry in session state. Guards the case
 # where a straggler content block for an already-recorded request lands
@@ -218,9 +224,91 @@ def usage_of(entry: dict) -> dict | None:
     }
 
 
+# Blocks the client wraps around a prompt that aren't part of what the user
+# actually asked for. Stripped before labelling, or every task in a session
+# with a slash command or an injected reminder would read the same.
+_NOISE_BLOCK = re.compile(
+    r"<(system-reminder|local-command-stdout|local-command-caveat|command-message"
+    r"|command-args|task-id|tool-use-id|output-file|note|result)>.*?</\1>",
+    re.S,
+)
+_COMMAND = re.compile(r"<command-name>(.*?)</command-name>", re.S)
+_COMMAND_ARGS = re.compile(r"<command-args>(.*?)</command-args>", re.S)
+_SUMMARY = re.compile(r"<summary>(.*?)</summary>", re.S)
+
+
+def _text_of(content) -> str:
+    """Flatten a user message's content down to its plain text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "\n".join(parts)
+    return ""
+
+
+def condense(text: str, cap: int = PROMPT_CAP) -> str:
+    """One line, no runs of whitespace, capped."""
+    text = " ".join(text.split())
+    if len(text) > cap:
+        return text[:cap - 1].rstrip() + "\u2026"
+    return text
+
+
+def is_human_prompt(entry: dict) -> bool:
+    """Whether a turn was started by a person typing, as opposed to an
+    interrupt marker or a system-generated notification.
+
+    Newer transcripts say so directly; older ones predate both fields, so
+    fall back to 'anything that isn't an interrupt marker'.
+    """
+    origin = entry.get("origin")
+    if isinstance(origin, dict) and origin.get("kind"):
+        return origin["kind"] == "human"
+    source = entry.get("promptSource")
+    if source:
+        return source in ("typed", "queued")
+    return not entry.get("interruptedMessageId")
+
+
+def prompt_of(entry: dict) -> str:
+    """A short label for the prompt that opened a turn.
+
+    Slash commands are labelled by the command rather than by the wrapper
+    the client expands them into, and task notifications by their summary,
+    so a task list reads like the work that was asked for.
+    """
+    text = _text_of((entry.get("message") or {}).get("content"))
+    origin = entry.get("origin")
+    if isinstance(origin, dict) and origin.get("kind") == "task-notification":
+        found = _SUMMARY.search(text)
+        return condense("\u21ba " + (found.group(1) if found else "task notification"))
+
+    command = _COMMAND.search(text)
+    if command:
+        args = _COMMAND_ARGS.search(text)
+        label = command.group(1).strip()
+        if args and args.group(1).strip():
+            label += " " + args.group(1).strip()
+        # A slash command is often followed by the real prompt in the same
+        # entry (the client appends its output, then the user's text).
+        rest = condense(_NOISE_BLOCK.sub(" ", _COMMAND.sub(" ", text)))
+        return condense(f"{label} {rest}".strip())
+
+    return condense(_NOISE_BLOCK.sub(" ", text))
+
+
 def is_turn_start(entry: dict) -> bool:
     """A real user prompt, as opposed to a tool result or a system-injected
-    meta entry. Used only to reconstruct turn boundaries during backfill.
+    meta entry. Marks where one turn ends and the next begins, and so where
+    a task's label comes from.
 
     Note: `promptId` looks like it would be the natural key here but is
     session-scoped, not per-turn -- it is identical across every user entry
@@ -246,14 +334,17 @@ def scan(path: Path, offset: int = 0, skip: set | None = None):
     block. Summing them line-by-line over-counts by ~2.5x, so we keep only
     the first line seen per requestId.
 
-    Returns (records, new_offset). The offset only ever advances past
-    complete newline-terminated lines, so a hook that fires while Claude
-    Code is still flushing a line will re-read that line next time rather
-    than losing or truncating it.
+    Returns (records, new_offset, prompts). `prompts` holds the turn-start
+    prompts seen in the same chunk, as (is_human, label) pairs, so the
+    caller can label the turn without a second pass over the file.
+
+    The offset only ever advances past complete newline-terminated lines,
+    so a hook that fires while Claude Code is still flushing a line will
+    re-read that line next time rather than losing or truncating it.
     """
     skip = skip or set()
     if not path.is_file():
-        return [], offset
+        return [], offset, []
 
     size = path.stat().st_size
     if size < offset:  # file was rotated or truncated underneath us
@@ -263,20 +354,25 @@ def scan(path: Path, offset: int = 0, skip: set | None = None):
         data = fh.read()
 
     if not data:
-        return [], offset
+        return [], offset, []
 
     complete, _, partial = data.rpartition(b"\n")
     if not _:
-        return [], offset  # no complete line yet
+        return [], offset, []  # no complete line yet
     new_offset = offset + len(data) - len(partial)
 
-    records, seen = [], set()
+    records, prompts, seen = [], [], set()
     for raw in complete.split(b"\n"):
         if not raw.strip():
             continue
         try:
             entry = json.loads(raw.decode("utf-8"))
         except (ValueError, UnicodeDecodeError):
+            continue
+        if is_turn_start(entry):
+            label = prompt_of(entry)
+            if label:
+                prompts.append((is_human_prompt(entry), label))
             continue
         rec = usage_of(entry)
         if rec is None:
@@ -286,7 +382,23 @@ def scan(path: Path, offset: int = 0, skip: set | None = None):
             continue
         seen.add(rid)
         records.append(rec)
-    return records, new_offset
+    return records, new_offset, prompts
+
+
+def pick_prompt(prompts: list, fallback: str = "") -> str:
+    """The best label for a turn out of the prompts seen in its chunk.
+
+    A turn that follows an interrupt, that a notification woke, or that the
+    user added to mid-flight has more than one candidate. The first human
+    prompt wins: it is the ask the work actually started from, and the one
+    the user would recognise as "the task". Failing that -- a turn no human
+    opened -- the most recent prompt of any kind, so a notification-driven
+    turn is still named after what woke it.
+    """
+    for human, label in prompts:
+        if human:
+            return label
+    return prompts[-1][1] if prompts else fallback
 
 
 def group_records(records: list[dict]) -> list[dict]:
@@ -351,10 +463,11 @@ def load_state(session_id: str, transcript=None) -> dict:
         with open(state_path(session_id, transcript), encoding="utf-8") as fh:
             state = json.load(fh)
     except (OSError, ValueError):
-        return {"turn": 0, "offsets": {}, "seen": []}
+        return {"turn": 0, "offsets": {}, "seen": [], "prompt": ""}
     state.setdefault("turn", 0)
     state.setdefault("offsets", {})
     state.setdefault("seen", [])
+    state.setdefault("prompt", "")
     return state
 
 
@@ -393,6 +506,9 @@ def aggregate(rows: list[dict], key_fn) -> list[dict]:
     used two models contributes two rows but still counts as one task.
     Cost is None-poisoned: if any row in a bucket has an unknown model, the
     bucket reports '?' instead of a total that silently omits it.
+
+    Each bucket also carries the models it drew on, and the prompt of its
+    earliest row -- which is what names a task or a session in the report.
     """
     buckets: dict = {}
     for row in rows:
@@ -401,7 +517,8 @@ def aggregate(rows: list[dict], key_fn) -> list[dict]:
         if b is None:
             b = buckets[key] = {
                 "key": key, "tasks": set(), "cost": 0.0,
-                "cost_known": True, "first_ts": row.get("ts"),
+                "cost_known": True, "first_ts": None, "prompt": "",
+                "models": {},
                 **{k: 0 for k in TOKEN_KEYS},
             }
         b["tasks"].add((row.get("session"), row.get("turn")))
@@ -411,12 +528,22 @@ def aggregate(rows: list[dict], key_fn) -> list[dict]:
             b["cost_known"] = False
         else:
             b["cost"] += row["cost_usd"]
+        model = row.get("model")
+        if model:
+            # Ranked by spend, so the model a bucket mostly ran on leads --
+            # a one-request haiku subagent shouldn't headline an opus task.
+            b["models"][model] = b["models"].get(model, 0.0) + (row.get("cost_usd") or 0.0)
         ts = row.get("ts")
         if ts and (not b["first_ts"] or ts < b["first_ts"]):
             b["first_ts"] = ts
+            if row.get("prompt"):
+                b["prompt"] = row["prompt"]
+        elif not b["prompt"]:
+            b["prompt"] = row.get("prompt") or ""
     out = []
     for b in buckets.values():
         b["tasks"] = len(b["tasks"])
+        b["models"] = [m for m, _ in sorted(b["models"].items(), key=lambda kv: -kv[1])]
         out.append(b)
     return out
 

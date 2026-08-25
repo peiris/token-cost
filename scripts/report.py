@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render the project's token ledger as a table.
 
-Usage: report.py [--cwd PATH] [sessions|today]
+Usage: report.py [--cwd PATH] [days|tasks [N|all]|sessions|today]
 """
 
 from __future__ import annotations
@@ -17,10 +17,36 @@ import ledger  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 
+# How many tasks the breakdown shows before it starts trimming. A day of
+# work is tens of tasks, not hundreds; `tasks all` opts into the full list.
+TASK_LIMIT = 25
+TASK_WIDTH = 52      # room for a prompt to be recognisable, not complete
+TITLE_WIDTH = 34
+
 
 def short_model(model: str) -> str:
     """claude-haiku-4-5-20251001 -> haiku-4-5"""
     return re.sub(r"-\d{8}$", "", re.sub(r"^claude-", "", model))
+
+
+def models_cell(b: dict) -> str:
+    """The model a task mostly ran on, plus a count of the others.
+
+    A task that spawns subagents can touch three models; naming them all
+    would swamp the row, and the one that carried the spend is the one
+    worth seeing.
+    """
+    models = b.get("models") or []
+    if not models:
+        return "?"
+    if len(models) == 1:
+        return short_model(models[0])
+    return f"{short_model(models[0])} +{len(models) - 1}"
+
+
+def label_of(b: dict, width: int) -> str:
+    """A bucket's prompt, or a dash for rows recorded before prompts were."""
+    return ledger.condense(b.get("prompt") or "\u2014", width)
 
 
 def cache_write(b: dict) -> int:
@@ -119,11 +145,39 @@ def main() -> int:
               " finish a task and run /token-cost again.")
         return 0
 
-    if mode.startswith("session"):
+    hint = "Run /token-cost tasks for a per-task breakdown."
+
+    if mode.startswith("task"):
+        # One row per task: the (session, turn) pair the recorder writes.
+        buckets = ledger.aggregate(
+            rows, lambda r: (r.get("session") or "?", r.get("turn") or 0))
+        buckets.sort(key=lambda b: (b.get("first_ts") or "", b["key"][1]),
+                     reverse=True)
+        total_tasks = len(buckets)
+        limit = TASK_LIMIT
+        if len(args) > 1:
+            if args[1].lower() in ("all", "full"):
+                limit = None
+            elif args[1].isdigit():
+                limit = max(int(args[1]), 1)
+        if limit is not None:
+            buckets = buckets[:limit]
+        columns = [
+            ("WHEN", "<", started, None),
+            ("TASK", "<", lambda b: label_of(b, TASK_WIDTH), None),
+            ("MODEL", "<", models_cell, None),
+        ] + NUMERIC_COLS[1:]   # a task counting its own tasks says "1" forever
+        subtitle = (f"latest {len(buckets)} tasks" if len(buckets) < total_tasks
+                    else "every task")
+        hint = ("Run /token-cost tasks all for the full list."
+                if len(buckets) < total_tasks else "")
+    elif mode.startswith("session"):
         buckets = ledger.aggregate(rows, lambda r: r.get("session") or "?")
         buckets.sort(key=lambda b: b.get("first_ts") or "", reverse=True)
         columns = [("SESSION", "<", lambda b: b["key"][:8], None),
-                   ("STARTED", "<", started, None)] + NUMERIC_COLS
+                   ("STARTED", "<", started, None),
+                   ("OPENED WITH", "<", lambda b: label_of(b, TITLE_WIDTH), None),
+                   ] + NUMERIC_COLS
         subtitle = f"{len(buckets)} sessions"
     elif mode == "today":
         today = datetime.now().astimezone().strftime("%Y-%m-%d")
@@ -151,6 +205,8 @@ def main() -> int:
     print(render(columns, buckets, {"TASKS": tasks}))
     print()
     print("Estimated from published API rates; subscription plans are not billed per token.")
+    if hint:
+        print(hint)
     return 0
 
 

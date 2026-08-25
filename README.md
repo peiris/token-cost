@@ -7,14 +7,14 @@ consumed and appends it to a private ledger outside your repo. `/token-cost`
 renders that ledger as a table.
 
 ```
-Project: token-cost    54 tasks    2026-08-22 → 2026-08-24
+Project: token-cost    16 tasks    2026-08-23 → 2026-08-25
 
-DATE        TASKS  INPUT  OUTPUT  CACHE R  CACHE W   EST. $
-2026-08-22     14   1.2k   41.0k     3.1M   198.0k    $2.10
-2026-08-23     31   2.6k   98.7k     7.2M   612.0k    $6.44
-2026-08-24      9   1.2k   56.6k     2.4M   294.0k    $4.40
-───────────────────────────────────────────────────────────
-TOTAL          54   5.0k  196.3k    12.7M     1.1M   $12.94
+DATE        TASKS  INPUT  OUTPUT  CACHE R  CACHE W  EST. $
+2026-08-23      6    161   34.8k     9.6M   214.0k   $7.25
+2026-08-24      6    134   29.0k     7.3M   152.3k   $5.41
+2026-08-25      4     98   17.6k     4.8M   108.2k   $3.48
+──────────────────────────────────────────────────────────
+TOTAL          16    393   81.4k    21.8M   474.4k  $16.14
 ```
 
 ## Why
@@ -70,11 +70,116 @@ inside your Claude Code data directory if you want the recorded history gone.
 
 ## Commands
 
-| Command                | Shows                                        |
-| ---------------------- | -------------------------------------------- |
-| `/token-cost`          | one row per day, plus a project total         |
-| `/token-cost sessions` | one row per session, newest first             |
-| `/token-cost today`    | today only, broken down by model              |
+| Command                | Shows                                          |
+| ---------------------- | ---------------------------------------------- |
+| `/token-cost`          | one row per day, plus a project total          |
+| `/token-cost tasks`    | one row per task — prompt, model, what it cost |
+| `/token-cost sessions` | one row per session, newest first              |
+| `/token-cost today`    | today only, broken down by model               |
+
+All four read the same ledger and end with a TOTAL row; they differ only in
+what a row means. The examples below are one small project seen four ways.
+
+### `/token-cost` — by day
+
+```
+Project: token-cost    16 tasks    2026-08-23 → 2026-08-25
+
+DATE        TASKS  INPUT  OUTPUT  CACHE R  CACHE W  EST. $
+2026-08-23      6    161   34.8k     9.6M   214.0k   $7.25
+2026-08-24      6    134   29.0k     7.3M   152.3k   $5.41
+2026-08-25      4     98   17.6k     4.8M   108.2k   $3.48
+──────────────────────────────────────────────────────────
+TOTAL          16    393   81.4k    21.8M   474.4k  $16.14
+```
+
+The default view: the whole life of the project, a row per calendar day. Days
+are local rather than UTC, so "today" means your today. TOTAL covers every
+task ever recorded — including sessions whose transcripts Claude Code has
+long since deleted.
+
+### `/token-cost tasks` — by task
+
+```
+Project: token-cost    16 tasks    every task
+
+WHEN         TASK                                                  MODEL      INPUT  OUTPUT  CACHE R  CACHE W  EST. $
+08-25 10:41  /token-cost tasks                                     opus-5         1     189    26.2k     3.5k   $0.05
+08-25 10:22  Add a per-task breakdown to the report                opus-5        33    4.6k   951.2k    26.4k   $0.85
+08-25 09:58  Slash commands should record as the command, not th…  opus-5        17    1.4k   446.6k     3.5k   $0.29
+08-25 09:23  Save the prompt that started each task                opus-5 +1     47   11.5k     3.4M    74.7k   $2.28
+08-24 13:31  Add update instructions to the README                 opus-5        10    1.2k   427.4k     3.4k   $0.28
+08-24 13:06  Publish the plugin to the marketplace                 opus-5        25    5.4k     1.4M    15.7k   $1.02
+08-24 10:05  Add a today view broken down by model                 opus-5        20    4.6k     1.5M    17.6k   $1.02
+08-24 09:33  /token-cost sessions                                  opus-5         1     202    28.7k     5.2k   $0.07
+08-24 09:20  Guard the sync with a lock, two sessions can race     opus-5        17    1.5k   462.5k     5.1k   $0.32
+08-24 08:47  Import history automatically on session start inste…  opus-5 +1     61   16.1k     3.5M   105.3k   $2.70
+08-23 14:40  Add a --backfill flag for sessions that predate the…  opus-5        45   10.2k     2.9M    58.6k   $2.30
+08-23 14:12  Read subagent transcripts too — they're billed sepa…  opus-5        19    4.2k     1.2M    24.6k   $0.95
+08-23 10:38  Write the README                                      opus-5        10    1.6k   266.4k     3.4k   $0.21
+08-23 10:02  Dedupe requests by requestId, we're counting every…   opus-5 +1     48   11.9k     3.6M   101.9k   $2.55
+08-23 09:41  The hook fires but nothing lands in the ledger — fi…  opus-5        11    1.6k   390.9k     5.0k   $0.29
+08-23 09:14  Set up the project skeleton and wire the Stop hook    opus-5        28    5.3k     1.2M    20.5k   $0.95
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+TOTAL                                                                           393   81.4k    21.8M   474.4k  $16.14
+```
+
+Newest first, each task named by the prompt that opened it — so an expensive
+turn is identifiable rather than anonymous. Three of the sixteen tasks above
+account for nearly half of what the project cost.
+
+`opus-5 +1` means one other model also worked on that task, usually a
+subagent. The model named is the one that carried the spend, not just the
+first one seen.
+
+This project has only sixteen tasks, so the table shows every one — longer
+histories stop at the latest 25. Ask for more when you want it:
+
+```
+/token-cost tasks all      every task on record
+/token-cost tasks 100      the latest 100
+```
+
+When the list is cut off, the TOTAL row covers the tasks shown rather than the
+whole project; the header line still carries the project-wide count.
+
+### `/token-cost sessions` — by session
+
+```
+Project: token-cost    16 tasks    5 sessions
+
+SESSION   STARTED      OPENED WITH                         TASKS  INPUT  OUTPUT  CACHE R  CACHE W  EST. $
+b7f51c83  08-25 09:23  Save the prompt that started each…      4     98   17.6k     4.8M   108.2k   $3.48
+6d09b3f4  08-24 13:06  Publish the plugin to the marketp…      2     35    6.6k     1.9M    19.1k   $1.29
+c41e7d92  08-24 08:47  Import history automatically on s…      4     99   22.4k     5.5M   133.2k   $4.12
+3ba8d0e6  08-23 14:12  Read subagent transcripts too — t…      2     64   14.3k     4.1M    83.2k   $3.25
+9f2c4a71  08-23 09:14  Set up the project skeleton and w…      4     97   20.5k     5.5M   130.7k   $4.00
+─────────────────────────────────────────────────────────────────────────────────────────────────────────
+TOTAL                                                         16    393   81.4k    21.8M   474.4k  $16.14
+```
+
+One row per Claude Code session, newest first. OPENED WITH is the session's
+first prompt, which is a better handle on "which session was that" than eight
+characters of a uuid. Long sessions are worth watching: cache reads grow with
+the conversation, so a session's tenth task costs more than its first.
+
+### `/token-cost today` — today, by model
+
+```
+Project: token-cost    4 tasks    today, 2026-08-25
+
+MODEL      TASKS  INPUT  OUTPUT  CACHE R  CACHE W  EST. $
+opus-5         4     91   14.5k     4.5M    80.2k   $3.39
+haiku-4-5      1      7    3.2k   351.0k    27.9k   $0.09
+─────────────────────────────────────────────────────────
+TOTAL          4     98   17.6k     4.8M   108.2k   $3.48
+```
+
+Today only — your local calendar day — split by model. The per-model task
+counts overlap on purpose: one of today's four tasks also ran a haiku
+subagent, so it appears on both rows while TOTAL still counts four tasks.
+
+### Keeping the ledger current
 
 The ledger is brought up to date on every session start, and again whenever
 you run one of these — so it also picks up sessions another machine recorded.
@@ -86,6 +191,10 @@ If you ever want to force a re-import from scratch:
 ```
 python3 scripts/record.py --backfill --force --cwd "$PWD"
 ```
+
+That rebuilds the ledger from the transcripts still on disk, so anything older
+than Claude Code's retention window is dropped. It is how you re-label old
+rows after an upgrade, but it trades history away to do it.
 
 ## Where the data lives
 
@@ -102,14 +211,24 @@ that, so a relocated or shared config directory works without configuration.
 Nothing is written inside your project, so there is no chance of committing it
 by accident, and it survives re-cloning the repo. Nothing leaves your machine.
 
-One ledger line per task, per model:
+One ledger line per task, per model. This is the "Save the prompt that started
+each task" row from the tasks table above, before the haiku subagent line that
+shares its turn is folded in:
 
 ```json
-{"ts":"2026-08-24T23:40:11Z","session":"98351a41-…","turn":7,
- "model":"claude-opus-5","kind":"main","reqs":4,
- "input":412,"output":3180,"cache_read":1204331,
- "cache_write_5m":0,"cache_write_1h":88210,"cost_usd":0.9421}
+{"ts":"2026-08-25T09:23:00Z","session":"b7f51c83-…","turn":1,
+ "prompt":"Save the prompt that started each task",
+ "model":"claude-opus-5","kind":"main","reqs":30,
+ "input":40,"output":8273,"cache_read":3033033,
+ "cache_write_5m":0,"cache_write_1h":46790,"cost_usd":2.1914415}
 ```
+
+`prompt` is the first 140 characters of the prompt that opened the task,
+flattened to one line — enough to recognise the task, not a copy of the
+conversation. Slash commands are recorded as the command, and a task a
+subagent notification woke is recorded as that notification's summary. It is
+the one piece of your own text the ledger holds; like everything else here it
+stays on your machine. Rows written before this existed show as `—`.
 
 ## How the numbers are produced
 

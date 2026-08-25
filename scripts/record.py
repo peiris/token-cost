@@ -23,8 +23,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ledger  # noqa: E402
 
 
-def rows_for(records, session_id, turn):
-    """Turn deduped requests into priced ledger rows, one per model+kind."""
+def rows_for(records, session_id, turn, prompt=""):
+    """Turn deduped requests into priced ledger rows, one per model+kind.
+
+    Every row of a turn repeats that turn's prompt. It costs a little space
+    over storing labels separately, but it keeps the ledger a flat file of
+    self-contained rows -- a row still means something on its own, and the
+    report never has to join two files to name a task.
+    """
     rows = []
     for group in ledger.group_records(records):
         tokens = {k: group[k] for k in ledger.TOKEN_KEYS}
@@ -32,6 +38,7 @@ def rows_for(records, session_id, turn):
             "ts": group["ts"],
             "session": session_id,
             "turn": turn,
+            "prompt": prompt,
             "model": group["model"],
             "kind": group["kind"],
             "reqs": group["reqs"],
@@ -65,15 +72,23 @@ def run_hook() -> None:
     skip = set(state["seen"])
 
     records = []
+    prompts = []
     # The main transcript, plus every subagent transcript for this session --
     # subagents are billed separately and often run a different model.
     targets = [("main", transcript)] + [
         (p.name, p) for p in ledger.subagent_files(transcript)
     ]
     for name, path in targets:
-        found, new_offset = ledger.scan(path, offsets.get(name, 0), skip)
+        found, new_offset, found_prompts = ledger.scan(path, offsets.get(name, 0), skip)
         offsets[name] = new_offset
         records.extend(found)
+        # Only the main transcript names the task: a subagent transcript
+        # opens with the instructions we gave the agent, not the user's ask.
+        if name == "main":
+            prompts = found_prompts
+
+    prompt = ledger.pick_prompt(prompts, state.get("prompt", ""))
+    state["prompt"] = prompt
 
     if not records:
         ledger.save_state(session_id, state, transcript)
@@ -82,7 +97,7 @@ def run_hook() -> None:
     state["turn"] += 1
     ledger.append_rows(
         ledger.ledger_path(cwd, transcript),
-        rows_for(records, session_id, state["turn"]),
+        rows_for(records, session_id, state["turn"], prompt),
     )
     state["seen"].extend(r["request_id"] for r in records)
     ledger.save_state(session_id, state, transcript)
@@ -99,9 +114,13 @@ def backfill_session(transcript: Path) -> list[dict]:
     ledger.is_turn_start), so backfilled task counts are close but not
     guaranteed identical to what the live hook would have recorded. Token
     and cost totals are exact either way.
+
+    Each turn is labelled with the prompt that opened it, so history
+    imported from disk names its tasks exactly like live recording does.
     """
     session_id = transcript.stem
     turns: dict[int, list] = {}
+    labels: dict[int, str] = {}
     boundaries: list[tuple[str, int]] = []
     turn = 0
     seen = set()
@@ -118,6 +137,13 @@ def backfill_session(transcript: Path) -> list[dict]:
             if ledger.is_turn_start(entry):
                 turn += 1
                 boundaries.append((entry.get("timestamp") or "", turn))
+                label = ledger.prompt_of(entry)
+                # An interrupt marker opens a turn of its own but isn't a
+                # task anyone asked for; if it ends up owning work, it is a
+                # continuation of the task before it.
+                if label and not ledger.is_human_prompt(entry) and not label.startswith("\u21ba"):
+                    label = labels.get(turn - 1, label)
+                labels[turn] = label
                 continue
             rec = ledger.usage_of(entry)
             if rec is None or rec["request_id"] in seen:
@@ -143,7 +169,8 @@ def backfill_session(transcript: Path) -> list[dict]:
 
     rows = []
     for turn_no in sorted(turns):
-        rows.extend(rows_for(turns[turn_no], session_id, turn_no))
+        rows.extend(rows_for(turns[turn_no], session_id, turn_no,
+                             labels.get(turn_no, "")))
     return rows
 
 
@@ -202,10 +229,12 @@ def sync(cwd: str, force: bool = False, transcript=None) -> dict:
             ledger.append_rows(path, rows)
             result["imported"] += 1
             result["tasks"] += len({r["turn"] for r in rows})
+            last = max(rows, key=lambda r: r["turn"])
             ledger.save_state(session_id, {
-                "turn": max(r["turn"] for r in rows),
+                "turn": last["turn"],
                 "offsets": {"main": session_file.stat().st_size},
                 "seen": [],
+                "prompt": last.get("prompt", ""),
             }, transcript)
     finally:
         _release_lock(lock)
