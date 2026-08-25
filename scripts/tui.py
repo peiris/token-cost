@@ -202,24 +202,24 @@ def panel(sc: Screen, y: int, x: int, w: int, h: int, title: str) -> None:
 PAD_X = 2
 
 
-def inside(x: int, y: int, w: int, h: int):
+def inside(x: int, y: int, w: int, h: int, min_content: int = 1):
     """(x, y, width, height) of the content area of a box drawn at x, y.
 
-    The blank line top and bottom appears only when the box can spare it --
-    below that, two rows of content beat two rows of air.
+    Every box gets its blank line top and bottom; it is given up only when
+    the box would then have less than `min_content` rows left to show. A
+    table needs four (header, a row, rule, total), a panel needs one.
     """
-    pad_y = 1 if h - 2 >= 5 else 0
+    pad_y = 1 if h - 4 >= min_content else 0
     return x + 1 + PAD_X, y + 1 + pad_y, w - 2 - 2 * PAD_X, h - 2 - 2 * pad_y
 
 
 def box_for(content: int) -> int:
-    """Box height that shows exactly `content` rows.
+    """Box height that shows exactly `content` rows, padding included.
 
-    The mirror of inside()'s padding rule. Sizing a box without consulting it
-    is how a chart ends up with two blank rows at the bottom: the box was
-    made tall enough for padding that then declined to appear.
+    The mirror of inside(). Sizing a box without consulting it is how a
+    chart ends up with two blank rows under the bars, or none above them.
     """
-    return content + 2 + (2 if content >= 3 else 0)
+    return content + 4
 
 
 def bar(value: float, peak: float, width: int):
@@ -293,7 +293,8 @@ def draw_boxed_table(sc: Screen, view, top: int, left: int, width: int,
     if height < 6:                       # box, header, rule, total, one row
         return draw_table(sc, view, top, left, width, height, offset)
     panel(sc, top, left, width, height, title)
-    x, y, w, h = inside(left, top, width, height)
+    # Four: a header, one row worth showing, the rule and the total.
+    x, y, w, h = inside(left, top, width, height, min_content=4)
     return draw_table(sc, view, y, x, w, h, offset)
 
 
@@ -430,8 +431,8 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
     room = sc.h - top - 1
 
     if not view.buckets:
-        panel(sc, top, left, width, 3, label)
-        nx, ny, _, _ = inside(left, top, width, 3)
+        panel(sc, top, left, width, box_for(1), label)
+        nx, ny, _, _ = inside(left, top, width, box_for(1))
         sc.put(ny, nx, caps(f"Nothing recorded in this window ({scope})."),
                curses.color_pair(C_MUTED))
         return 0, 0
@@ -450,7 +451,9 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
                                  view.subtitle)
         return shown, len(view.buckets)
 
-    split_h = len(view.buckets) + 5      # borders, header, rule, total
+    # header, rows, rule, total -- sized through box_for so the box asks for
+    # the padding rather than fitting its contents exactly and being denied it.
+    split_h = box_for(len(view.buckets) + 3)
     draw_boxed_table(sc, view, top, left, width, split_h, 0, view.subtitle)
     below = top + split_h + 1
     shown = draw_boxed_table(sc, task_view, below, left, width,
@@ -484,27 +487,25 @@ def draw_tabs(sc: Screen, tab: int, y: int, left: int, width: int) -> None:
            + rail + br, edge)
 
     x = left
-    for i, cell in enumerate(labels):
+    slots = []
+    for cell in labels:
         sc.put(y + 1, x, VERT, edge)
-        x += 1
-        if i == tab:
-            # A border is a line through the middle of its cell; a filled
-            # cell covers the whole of one. Filling the border rows outright
-            # therefore bulges half a cell above and below the strip. Half
-            # blocks stop exactly where the neighbouring rules run, so the
-            # tab meets the frame instead of overflowing it.
-            fill = edge | curses.A_REVERSE | curses.A_BOLD
-            if HALF_DOWN:
-                sc.put(y, x, HALF_DOWN * len(cell), edge)
-                sc.put(y + 2, x, HALF_UP * len(cell), edge)
-            sc.put(y + 1, x, cell, fill)
-        else:
-            sc.put(y + 1, x, cell, curses.color_pair(C_MUTED))
-        x += len(cell)
-    # No divider after the last tab: the borders have no junction there, and
-    # one here would hang in mid-air over plain rail.
+        slots.append(x)              # the divider cell that opens this tab
+        sc.put(y + 1, x + 1, cell, curses.color_pair(C_MUTED))
+        x += 1 + len(cell)
     sc.put(y + 1, x, " " * spare)
     sc.put(y + 1, left + width - 1, VERT, edge)
+
+    # The selected tab is painted last, over its own dividers. A divider is a
+    # hairline down the centre of a cell, so filling only between them leaves
+    # half a cell of background either side -- the gap that stops it reading
+    # as a button. Covering those cells makes the fill meet its neighbours.
+    x0 = slots[tab]
+    block = f" {labels[tab]} "
+    if HALF_DOWN:
+        sc.put(y, x0, HALF_DOWN * len(block), edge)
+        sc.put(y + 2, x0, HALF_UP * len(block), edge)
+    sc.put(y + 1, x0, block, edge | curses.A_REVERSE | curses.A_BOLD)
 
 
 def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
@@ -524,11 +525,17 @@ def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
         # No room for the strip. Name the tab you are on and where it sits,
         # because a bar that runs off the edge hides both.
         current, place = TABS[tab][0], f"{tab + 1}/{len(TABS)}"
-        panel(sc, 2, left, width, 3, "")
-        sc.put(3, left + 2, LEFT_ARROW, muted)
-        sc.put(3, left + 4, fit(current, width - 12), accent | curses.A_BOLD)
-        sc.put(3, left + width - len(place) - 5, place, muted)
-        sc.put(3, left + width - 3, RIGHT_ARROW, muted)
+        # Padded like everything else, unless the screen is so short that
+        # two rows of air here would cost the table below its own frame.
+        height = box_for(1) if sc.h >= 20 else 3
+        panel(sc, 2, left, width, height, "")
+        bx, by, bw, _ = inside(left, 2, width, height)
+        sc.put(by, bx, LEFT_ARROW, muted)
+        sc.put(by, bx + 2, fit(current, bw - 10), accent | curses.A_BOLD)
+        sc.put(by, bx + bw - len(place) - 2, place, muted)
+        sc.put(by, bx + bw - 1, RIGHT_ARROW, muted)
+        sc.put(sc.h - 1, 2, fit(KEYS, sc.w - 4), muted)
+        return 2 + height
 
     sc.put(sc.h - 1, 2, fit(KEYS, sc.w - 4), muted)
     return 5
