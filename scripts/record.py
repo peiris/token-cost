@@ -229,21 +229,25 @@ def sync(cwd: str, force: bool = False, transcript=None) -> dict:
     result = {"imported": 0, "resumed": 0, "tasks": 0, "skipped": 0,
               "transcripts": False}
     path = ledger.ledger_path(cwd, transcript)
-    if force:
-        if path.exists():
-            path.unlink()
-        # The offsets have to go with the rows, or a rebuild would resume
-        # from where the deleted ledger had got to and import nothing.
-        for stale in ledger.state_dir(transcript).glob("*.json"):
-            try:
-                stale.unlink()
-            except OSError:
-                pass
-
     tdir = ledger.project_transcript_dir(cwd, transcript)
     if tdir is None or not tdir.is_dir():
         return result
     result["transcripts"] = True
+
+    if force:
+        if path.exists():
+            path.unlink()
+        # The offsets have to go with the rows, or a rebuild resumes from
+        # where the deleted ledger had reached and imports nothing. Only
+        # this project's sessions: state lives in one directory for every
+        # project, and clearing all of it would have every other project
+        # re-import from zero and append a duplicate of everything it has.
+        for session_file in tdir.glob("*.jsonl"):
+            state_file = ledger.state_path(session_file.stem, transcript)
+            try:
+                state_file.unlink()
+            except OSError:
+                pass
 
     # One writer at a time per project, so two concurrent /token-cost runs
     # can't both import the same session. Whoever loses the race just skips

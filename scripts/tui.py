@@ -126,7 +126,8 @@ class Data:
         rows, scope = self.rows, ""
         if period:
             rows, scope = views.in_window(self.rows, period)
-        return views.build(rows, mode, scope, label_width), rows, scope
+        return views.build(rows, mode, scope, label_width,
+                           unknown=views.UNKNOWN_LONG), rows, scope
 
 
 # --------------------------------------------------------------------------
@@ -320,6 +321,19 @@ def draw_boxed_table(sc: Screen, view, top: int, left: int, width: int,
     return draw_table(sc, view, y, x, w, h, offset)
 
 
+def put_label(sc: Screen, y: int, x: int, text: str, attr: int = 0) -> None:
+    """Draw a cell, dimming the aside on an unknown label.
+
+    "Unknown (tasks before plugin installed)" is one name and one
+    explanation; the explanation shouldn't carry the same weight as the
+    prompts it sits among.
+    """
+    sc.put(y, x, text, attr)
+    if text.startswith(views.UNKNOWN + " ("):
+        head = len(views.UNKNOWN)
+        sc.put(y, x + head, text[head:], curses.color_pair(C_MUTED))
+
+
 def draw_row(sc: Screen, y: int, x: int, cells, widths, aligns, attr=0,
              limit=None) -> None:
     """`limit` is the first column the row may not reach: inside a box that
@@ -330,7 +344,8 @@ def draw_row(sc: Screen, y: int, x: int, cells, widths, aligns, attr=0,
         if x >= edge:
             return
         text = fit(cell, min(w, edge - x))
-        sc.put(y, x, text.rjust(w) if align == ">" else text.ljust(w), attr)
+        put_label(sc, y, x, text.rjust(w) if align == ">" else text.ljust(w),
+                  attr)
         x += w + GAP
 
 
@@ -434,7 +449,9 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
         tx, ty, tw, th = inside(left, y, width, box_h)
         for i, b in enumerate(tasks[:th]):
             cost = ledger.fmt_usd(b["cost"], b["cost_known"])
-            sc.put(ty + i, tx, views.label_of(b, max(10, tw - len(cost) - 2)))
+            put_label(sc, ty + i, tx,
+                      views.label_of(b, max(10, tw - len(cost) - 2),
+                                     views.UNKNOWN_LONG))
             sc.put(ty + i, tx + tw - len(cost), cost, curses.A_BOLD)
     return 0
 

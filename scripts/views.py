@@ -57,13 +57,21 @@ def models_cell(b: dict) -> str:
     return f"{short_model(models[0])} +{len(models) - 1}"
 
 
-def label_of(b: dict, width: int) -> str:
-    """A bucket's prompt, or a dash for rows recorded before prompts were.
+# What a row with no prompt is called. The plain report keeps the dash --
+# it has a chat message's width to live within, and a phrase this long
+# repeated down 900 rows is a wall. The UI has the room to say it.
+UNKNOWN = "Unknown"
+UNKNOWN_NOTE = "(tasks before plugin installed)"
+UNKNOWN_LONG = f"{UNKNOWN} {UNKNOWN_NOTE}"
+
+
+def label_of(b: dict, width: int, unknown: str = "—") -> str:
+    """A bucket's prompt, or `unknown` for rows recorded before prompts were.
 
     Paths are tagged here as well as at record time, so rows written before
     that existed stop showing a screenshot's temp path as their whole label.
     """
-    return ledger.condense(ledger.tag_paths(b.get("prompt") or "—"), width)
+    return ledger.condense(ledger.tag_paths(b.get("prompt") or unknown), width)
 
 
 def cache_write(b: dict) -> int:
@@ -209,7 +217,7 @@ def count_tasks(rows: list) -> int:
     return len({(r.get("session"), r.get("turn")) for r in rows})
 
 
-def build(rows, mode, scope="", label_width=None) -> View:
+def build(rows, mode, scope="", label_width=None, unknown="—") -> View:
     """Assemble one view over rows already filtered to their period.
 
     `scope` is the phrase naming that period, if any; `label_width` lets a
@@ -221,7 +229,7 @@ def build(rows, mode, scope="", label_width=None) -> View:
         width = label_width or TASK_WIDTH
         return View(
             [("WHEN", "<", started, None),
-             ("TASK", "<", lambda b: label_of(b, width), None),
+             ("TASK", "<", lambda b: label_of(b, width, unknown), None),
              ("MODEL", "<", models_cell, None)]
             + NUMERIC_COLS[1:],   # a task counting its own tasks says "1" forever
             task_buckets(rows),
@@ -239,7 +247,7 @@ def build(rows, mode, scope="", label_width=None) -> View:
         return View(
             [("SESSION", "<", lambda b: b["key"][:8], None),
              ("STARTED", "<", started, None),
-             ("OPENED WITH", "<", lambda b: label_of(b, width), None)]
+             ("OPENED WITH", "<", lambda b: label_of(b, width, unknown), None)]
             + NUMERIC_COLS,
             buckets, subtitle, tasks,
             "Run /token-cost tasks for a per-task breakdown.",
