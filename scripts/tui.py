@@ -183,6 +183,33 @@ def panel(sc: Screen, y: int, x: int, w: int, h: int, title: str) -> None:
     sc.put(y + h - 1, x, bl + RULE * (w - 2) + br, edge)
 
 
+# Breathing room inside a frame: two columns each side, and a blank line top
+# and bottom when the box is tall enough to spare them. A table pressed
+# against its own border reads as cramped, but on a short terminal two rows
+# of data are worth more than two rows of air.
+PAD_X = 2
+
+
+def inside(x: int, y: int, w: int, h: int):
+    """(x, y, width, height) of the content area of a box drawn at x, y.
+
+    The blank line top and bottom appears only when the box can spare it --
+    below that, two rows of content beat two rows of air.
+    """
+    pad_y = 1 if h - 2 >= 5 else 0
+    return x + 1 + PAD_X, y + 1 + pad_y, w - 2 - 2 * PAD_X, h - 2 - 2 * pad_y
+
+
+def box_for(content: int) -> int:
+    """Box height that shows exactly `content` rows.
+
+    The mirror of inside()'s padding rule. Sizing a box without consulting it
+    is how a chart ends up with two blank rows at the bottom: the box was
+    made tall enough for padding that then declined to appear.
+    """
+    return content + 2 + (2 if content >= 3 else 0)
+
+
 def bar(value: float, peak: float, width: int):
     """(filled, remainder) for one bar, both already sized to `width`.
 
@@ -254,7 +281,8 @@ def draw_boxed_table(sc: Screen, view, top: int, left: int, width: int,
     if height < 6:                       # box, header, rule, total, one row
         return draw_table(sc, view, top, left, width, height, offset)
     panel(sc, top, left, width, height, title)
-    return draw_table(sc, view, top + 1, left + 2, width - 4, height - 2, offset)
+    x, y, w, h = inside(left, top, width, height)
+    return draw_table(sc, view, y, x, w, h, offset)
 
 
 def draw_row(sc: Screen, y: int, x: int, cells, widths, aligns, attr=0,
@@ -322,59 +350,57 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
     stacked = width < 62
     stats_w = width if stacked else max(30, width // 3)
     models_w = width if stacked else width - stats_w - 2
-    box_h = min(3 + len(models), 7)
+    stats_h = box_for(3)              # the three facts below
+    box_h = max(box_for(min(len(models), 5)), stats_h if not stacked else 0)
 
-    panel(sc, y, left, stats_w, 5, "Project")
-    sc.put(y + 1, left + 2, f"{data.tasks:,} tasks", accent | curses.A_BOLD)
-    sc.put(y + 2, left + 2, data.span, muted)
-    sc.put(y + 3, left + 2, ledger.fmt_usd(data.cost, data.cost_known),
+    panel(sc, y, left, stats_w, stats_h, "Project")
+    bx, by, _, _ = inside(left, y, stats_w, stats_h)
+    sc.put(by, bx, f"{data.tasks:,} tasks", accent | curses.A_BOLD)
+    sc.put(by + 1, bx, data.span, muted)
+    sc.put(by + 2, bx, ledger.fmt_usd(data.cost, data.cost_known),
            accent | curses.A_BOLD)
 
-    models_y = y + 5 if stacked else y
+    models_y = y + stats_h if stacked else y
+    models_x = left if stacked else left + stats_w + 2
     if sc.h - models_y > 3:
-        panel(sc, models_y, left if stacked else left + stats_w + 2,
-              models_w, box_h, "Models")
-        mx = left if stacked else left + stats_w + 2
-        for i, b in enumerate(models[:box_h - 2]):
+        panel(sc, models_y, models_x, models_w, box_h, "Models")
+        mx, my, mw, mh = inside(models_x, models_y, models_w, box_h)
+        for i, b in enumerate(models[:mh]):
             cost = ledger.fmt_usd(b["cost"], b["cost_known"])
-            sc.put(models_y + 1 + i, mx + 2,
-                   f"{b['key']:<14}{b['tasks']:>6} tasks")
-            sc.put(models_y + 1 + i, mx + models_w - len(cost) - 2, cost,
-                   curses.A_BOLD)
-    y = (models_y + box_h + 1) if stacked else (y + max(5, box_h) + 1)
+            sc.put(my + i, mx, f"{b['key']:<14}{b['tasks']:>6} tasks")
+            sc.put(my + i, mx + mw - len(cost), cost, curses.A_BOLD)
+    y = (models_y + box_h + 1) if stacked else (y + max(stats_h, box_h) + 1)
 
     days = [b for b in views.day_buckets(data.rows) if b["key"] != "unknown"]
     days = days[-(max(3, sc.h - y - 12)):]
     if days and y + 4 < sc.h:
-        chart_h = min(len(days) + 2, sc.h - y - 8)
+        chart_h = min(box_for(len(days)), sc.h - y - 8)
         panel(sc, y, left, width, chart_h, "Cost per day")
+        cx, cy, cw, ch = inside(left, y, width, chart_h)
         peak = max(b["cost"] for b in days) or 1.0
         # Fills the panel: label, bar, then the figure hard against the right
         # edge, so the row reads left to right with nothing dangling.
-        room = max(12, width - 23)
-        for i, b in enumerate(days[-(chart_h - 2):]):
+        room = max(12, cw - 19)
+        for i, b in enumerate(days[-ch:]):
             filled, rest = bar(b["cost"], peak, room)
-            x = left + 2
-            sc.put(y + 1 + i, x, b["key"][5:], muted)
-            x += 6
-            sc.put(y + 1 + i, x, LEFT_EDGE, muted)
-            sc.put(y + 1 + i, x + 1, filled, accent)
-            sc.put(y + 1 + i, x + 1 + len(filled), rest, muted)
-            sc.put(y + 1 + i, x + 1 + room, RIGHT_EDGE, muted)
+            sc.put(cy + i, cx, b["key"][5:], muted)
+            sc.put(cy + i, cx + 6, LEFT_EDGE, muted)
+            sc.put(cy + i, cx + 7, filled, accent)
+            sc.put(cy + i, cx + 7 + len(filled), rest, muted)
+            sc.put(cy + i, cx + 7 + room, RIGHT_EDGE, muted)
             cost = ledger.fmt_usd(b["cost"], b["cost_known"])
-            sc.put(y + 1 + i, x + room + 4, cost.rjust(9), curses.A_BOLD)
-
+            sc.put(cy + i, cx + cw - len(cost), cost, curses.A_BOLD)
         y += chart_h + 1
 
     tasks = sorted(views.task_buckets(data.rows), key=lambda b: -b["cost"])[:5]
     if tasks and y + 4 < sc.h:
-        box_h = min(len(tasks) + 2, sc.h - y - 2)
+        box_h = min(box_for(len(tasks)), sc.h - y - 2)
         panel(sc, y, left, width, box_h, "Most expensive tasks")
-        for i, b in enumerate(tasks[:box_h - 2]):
+        tx, ty, tw, th = inside(left, y, width, box_h)
+        for i, b in enumerate(tasks[:th]):
             cost = ledger.fmt_usd(b["cost"], b["cost_known"])
-            sc.put(y + 1 + i, left + 2,
-                   views.label_of(b, max(10, width - len(cost) - 8)))
-            sc.put(y + 1 + i, left + width - len(cost) - 2, cost, curses.A_BOLD)
+            sc.put(ty + i, tx, views.label_of(b, max(10, tw - len(cost) - 2)))
+            sc.put(ty + i, tx + tw - len(cost), cost, curses.A_BOLD)
     return 0
 
 
@@ -393,7 +419,8 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int):
 
     if not view.buckets:
         panel(sc, top, left, width, 3, label)
-        sc.put(top + 1, left + 2, f"Nothing recorded in this window ({scope}).",
+        nx, ny, _, _ = inside(left, top, width, 3)
+        sc.put(ny, nx, f"Nothing recorded in this window ({scope}).",
                curses.color_pair(C_MUTED))
         return 0, 0
 
@@ -448,9 +475,17 @@ def draw_tabs(sc: Screen, tab: int, y: int, left: int, width: int) -> None:
     for i, cell in enumerate(labels):
         sc.put(y + 1, x, VERT, edge)
         x += 1
-        sc.put(y + 1, x, cell,
-               edge | curses.A_REVERSE | curses.A_BOLD if i == tab
-               else curses.color_pair(C_MUTED))
+        if i == tab:
+            # The whole cell, border to border. Filling only the text row
+            # leaves the colour floating in the middle of the tab with dark
+            # bands above and below it, which reads as a pill inside a box
+            # rather than as the tab itself being selected.
+            fill = edge | curses.A_REVERSE | curses.A_BOLD
+            sc.put(y, x, " " * len(cell), fill)
+            sc.put(y + 1, x, cell, fill)
+            sc.put(y + 2, x, " " * len(cell), fill)
+        else:
+            sc.put(y + 1, x, cell, curses.color_pair(C_MUTED))
         x += len(cell)
     # No divider after the last tab: the borders have no junction there, and
     # one here would hang in mid-air over plain rail.
