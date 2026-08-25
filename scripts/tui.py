@@ -73,6 +73,7 @@ if UNICODE:
     RULE, UNDER, VERT = "─", "━", "│"
     CORNERS = "╭╮╰╯"
     T_DOWN, T_UP = "┬", "┴"
+    T_LEFT, T_RIGHT = "├", "┤"
     HALF_DOWN, HALF_UP = "▄", "▀"
     LOGO = "▂▄▆█"          # a rising bar chart: what this thing is about
     MARKER = "▌"           # the bar down the left of the selected tab
@@ -86,6 +87,7 @@ else:
     RULE, UNDER, VERT = "-", "=", "|"
     CORNERS = "++++"
     T_DOWN, T_UP = "+", "+"
+    T_LEFT, T_RIGHT = "+", "+"
     HALF_DOWN, HALF_UP = None, None
     LOGO = "..:#"
     MARKER = "|"
@@ -588,15 +590,19 @@ def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
             break
     centred(sc, y, x, w, parts)
 
-    # Tucked under the masthead with no gap: the two are one piece of
-    # chrome, and the space belongs between chrome and content instead.
+    # The two frames share a rule rather than stacking one on top of the
+    # other: they are one piece of chrome, and two lines a row apart read as
+    # a gap between them. The shared row's ends become tees.
     nav = 3                            # frame, tabs, frame -- no blank rows
-    panel(sc, head, left, width, nav, "")
-    nx, ny, nw, _ = inside(left, head, width, nav)
-    draw_nav(sc, tab, ny, nx, nw, band_top=head + 1, band_rows=nav - 2)
+    joint = head - 1
+    panel(sc, joint, left, width, nav, "")
+    sc.put(joint, left, T_LEFT, accent)
+    sc.put(joint, left + width - 1, T_RIGHT, accent)
+    nx, ny, nw, _ = inside(left, joint, width, nav)
+    draw_nav(sc, tab, ny, nx, nw, band_top=joint + 1, band_rows=nav - 2)
 
     sc.put(sc.h - 1, 2, fit(KEYS, sc.w - 4), muted)
-    return head + nav + 1
+    return joint + nav + 1
 
 
 def run(stdscr, cwd: str) -> None:
