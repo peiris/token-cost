@@ -4,17 +4,29 @@ A Claude Code plugin that records what each task costs, per project.
 
 When a task finishes, a `Stop` hook reads the token usage that turn actually
 consumed and appends it to a private ledger outside your repo. `/token-cost`
-renders that ledger as a table.
+renders that ledger as a visual overview.
 
 ```
-Project: token-cost    16 tasks    2026-08-23 → 2026-08-25
+╭─ ▂▄▆█  Claude Token Cost  ·  token-cost ───────────────────────────────────────────────────╮
+│ ▌ Overview     Today     This Week     This Month     All Tasks     Sessions               │
+╰────────────────────────────────────────────────────────────────────────────────────────────╯
 
-DATE        TASKS  INPUT  OUTPUT  CACHE R  CACHE W  EST. $
-2026-08-23      6    161   34.8k     9.6M   214.0k   $7.25
-2026-08-24      6    134   29.0k     7.3M   152.3k   $5.41
-2026-08-25      4     98   17.6k     4.8M   108.2k   $3.48
-──────────────────────────────────────────────────────────
-TOTAL          16    393   81.4k    21.8M   474.4k  $16.14
+╭─ Project ───────────────────╮  ╭─ Models ──────────────────────────────────────────────────╮
+│ 16 Tasks                    │  │ opus-5       16 Tasks   21.1M Tokens   $15.85             │
+│ 2026-08-23 → 2026-08-25     │  │ haiku-4-5     3 Tasks    1.2M Tokens    $0.29             │
+│ 22.3M Tokens                 │  │                                                         │
+│ $16.14                       │  │                                                         │
+╰─────────────────────────────╯  ╰───────────────────────────────────────────────────────────╯
+
+╭─ Cost Per Day ─────────────────────────────────────────────────────────────────────────────╮
+│ 08-23 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▏ 9.9M $7.25 │
+│ 08-24 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏ 7.5M $5.41 │
+│ 08-25 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏ 4.9M $3.48 │
+╰────────────────────────────────────────────────────────────────────────────────────────────╯
+
+╭─ Most Expensive Tasks ─────────────────────────────────────────────────────────────────────╮
+│ Import history automatically on session start instead of asking        3.6M $2.70          │
+╰────────────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 ## Why
@@ -72,7 +84,8 @@ inside your Claude Code data directory if you want the recorded history gone.
 
 | Command                | Shows                                          |
 | ---------------------- | ---------------------------------------------- |
-| `/token-cost`          | one row per day, plus a project total          |
+| `/token-cost`          | the visual overview: project, models, days, and costly tasks |
+| `/token-cost days`     | one row per day, plus a project total          |
 | `/token-cost tasks`    | one row per task — prompt, model, what it cost |
 | `/token-cost sessions` | one row per session, newest first              |
 | `/token-cost today`    | today only, broken down by model               |
@@ -80,11 +93,12 @@ inside your Claude Code data directory if you want the recorded history gone.
 | `/token-cost month`    | the last 30 days, broken down by model         |
 | `/token-cost ui`       | opens the full-screen UI in a new window       |
 
-They all read the same ledger and end with a TOTAL row; they differ only in
-what a row means, and any of them can be narrowed to a period. The examples
-below are one small project seen several ways.
+They all read the same ledger. The default overview mirrors the full-screen
+UI in Claude Code; the explicit tables end with a TOTAL row. Any table can be
+narrowed to a period. The examples below are one small project seen several
+ways.
 
-### `/token-cost` — by day
+### `/token-cost days` — by day
 
 ```
 Project: token-cost    16 tasks    2026-08-23 → 2026-08-25
@@ -97,10 +111,10 @@ DATE        TASKS  INPUT  OUTPUT  CACHE R  CACHE W  EST. $
 TOTAL          16    393   81.4k    21.8M   474.4k  $16.14
 ```
 
-The default view: the whole life of the project, a row per calendar day. Days
-are local rather than UTC, so "today" means your today. TOTAL covers every
-task ever recorded — including sessions whose transcripts Claude Code has
-long since deleted.
+The detailed day view: the whole life of the project, a row per calendar day.
+Days are local rather than UTC, so "today" means your today. TOTAL covers
+every task ever recorded — including sessions whose transcripts Claude Code
+has long since deleted.
 
 ### `/token-cost tasks` — by task
 
@@ -265,9 +279,9 @@ clean slate.
 
 ## The UI
 
-`/token-cost` prints a table into the conversation. `token-cost` opens the
-same ledger as a full-screen app, with tabs and no limit on how much it can
-show:
+`/token-cost` prints a chat-safe version of the Overview tab into the
+conversation. `token-cost` opens the same ledger as a full-screen app, with
+tabs and no limit on how much it can show:
 
 ```
   ╭────────────────────────────────────────────────────────────────────────────────────────────────────────╮

@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Render the project's token ledger as a table.
+"""Render the project's token ledger for Claude Code.
 
 Usage: report.py [--cwd PATH] [--budget N] [days|tasks|sessions|ui] [today|week|month]
 
-What a view contains lives in views.py; this file only knows how to print one
-as plain text. `--budget` caps how many characters that print may occupy --
-see budget_notice for why a report ever declines to draw itself.
+What a view contains lives in views.py; this file only knows how to print the
+chat overview and its explicit plain-text tables. `--budget` caps how many
+characters that print may occupy -- see budget_notice for why a report ever
+declines to draw itself.
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -21,6 +23,154 @@ import views  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 PLUGIN_ROOT = HERE.parent
+
+# Claude Code prints this report in a code block rather than a real terminal.
+# Keep the overview comfortably inside that pane while preserving the same
+# hierarchy as the full-screen UI: masthead, key figures, the model split,
+# spend over time, and the tasks worth investigating.
+OVERVIEW_WIDTH = 94
+
+
+def version() -> str:
+    """The installed plugin version for the chat overview masthead."""
+    try:
+        with open(PLUGIN_ROOT / ".claude-plugin" / "plugin.json",
+                  encoding="utf-8") as fh:
+            return "v" + json.load(fh)["version"]
+    except (OSError, ValueError, KeyError):
+        return ""
+
+
+def frame(title: str, rows: list[str], width: int = OVERVIEW_WIDTH) -> list[str]:
+    """A chat-safe titled panel, mirroring the full-screen UI's frames."""
+    width = max(8, width)
+    inner = width - 4
+    title = title[:max(0, inner - 2)]
+    head = f"╭─ {title} "
+    lines = [head + "─" * max(0, width - len(head) - 1) + "╮"]
+    lines.extend(f"│ {line[:inner].ljust(inner)} │" for line in rows)
+    lines.append("╰" + "─" * (width - 2) + "╯")
+    return lines
+
+
+def paired_frames(left_title: str, left_rows: list[str], right_title: str,
+                  right_rows: list[str]) -> list[str]:
+    """Two panels on one line, as long as the report's fixed width allows."""
+    left_width = 31
+    right_width = OVERVIEW_WIDTH - left_width - 2
+    content_height = max(len(left_rows), len(right_rows))
+    left = frame(left_title, left_rows + [""] * (content_height - len(left_rows)),
+                 left_width)
+    right = frame(right_title,
+                  right_rows + [""] * (content_height - len(right_rows)),
+                  right_width)
+    return [a + "  " + b for a, b in zip(left, right)]
+
+
+def overview(rows: list[dict], project: str) -> str:
+    """Render the default Claude Code report in the full-screen UI's shape.
+
+    Curses cannot attach to Claude Code's captured shell, but its output is
+    still monospaced. This is the static, scrollable counterpart to the UI's
+    Overview tab rather than a second, unrelated presentation of the ledger.
+    """
+    tasks = views.count_tasks(rows)
+    total_cost = sum(row.get("cost_usd") or 0.0 for row in rows)
+    cost_known = all(row.get("cost_usd") is not None for row in rows)
+    total_tokens = sum(
+        sum(row.get(key, 0) for key in ledger.TOKEN_KEYS) for row in rows)
+    days = [bucket for bucket in views.day_buckets(rows)
+            if bucket["key"] != "unknown"]
+    span = (f"{days[0]['key']} → {days[-1]['key']}" if days
+            else "no dated rows")
+
+    title_parts = ["▂▄▆█", "Claude Token Cost"]
+    if current := version():
+        title_parts.append(current)
+    title_parts.append("·")
+    title_parts.append(project)
+    masthead = "  ".join(title_parts)
+    nav = "▌ Overview     Today     This Week     This Month     All Tasks     Sessions"
+    lines = frame(masthead, [nav])
+    lines.append("")
+
+    project_rows = [
+        f"{tasks:,} Tasks",
+        span,
+        f"{ledger.fmt_tokens(total_tokens)} Tokens",
+        ledger.fmt_usd(total_cost, cost_known),
+    ]
+    models = views.model_buckets(rows)
+    model_costs = [ledger.fmt_usd(bucket["cost"], bucket["cost_known"])
+                   for bucket in models]
+    model_tokens = [f"{ledger.fmt_tokens(views.total_tokens(bucket))} Tokens"
+                    for bucket in models]
+    model_width = min(18, max([5] + [len(bucket["key"]) for bucket in models]))
+    task_counts = [f"{bucket['tasks']:,} Tasks" for bucket in models]
+    task_width = max([5] + [len(count) for count in task_counts])
+    tokens_width = max([6] + [len(tokens) for tokens in model_tokens])
+    cost_width = max([1] + [len(cost) for cost in model_costs])
+    model_rows = [
+        f"{bucket['key'][:model_width]:<{model_width}}  "
+        f"{count:>{task_width}}  {tokens:>{tokens_width}}  {cost:>{cost_width}}"
+        for bucket, count, tokens, cost in zip(
+            models, task_counts, model_tokens, model_costs)
+    ]
+    paired_model_width = OVERVIEW_WIDTH - 31 - 2 - 4
+    if all(len(row) <= paired_model_width for row in model_rows):
+        lines.extend(paired_frames("Project", project_rows, "Models", model_rows))
+    else:
+        # Preserve unusually large figures instead of slicing their dollars
+        # off at the narrow right-hand panel's edge.
+        lines.extend(frame("Project", project_rows))
+        lines.append("")
+        lines.extend(frame("Models", model_rows))
+
+    if days:
+        lines.append("")
+        day_costs = [ledger.fmt_usd(bucket["cost"], bucket["cost_known"])
+                     for bucket in days]
+        day_tokens = [ledger.fmt_tokens(views.total_tokens(bucket))
+                      for bucket in days]
+        cost_width = max(len(cost) for cost in day_costs)
+        tokens_width = max(len(tokens) for tokens in day_tokens)
+        # date, a space plus left edge, right edge, and the three spaces
+        # around the trailing figures take eleven cells together.
+        bar_width = OVERVIEW_WIDTH - 4 - 11 - tokens_width - cost_width
+        peak = max(bucket["cost"] for bucket in days) or 1.0
+        chart_rows = []
+        for bucket, tokens, cost in zip(days, day_tokens, day_costs):
+            filled = (max(1, round(bucket["cost"] / peak * bar_width))
+                      if bucket["cost"] else 0)
+            chart_rows.append(
+                f"{bucket['key'][5:]} ▕{'▄' * filled}{'┈' * (bar_width - filled)}▏"
+                f" {tokens:>{tokens_width}} {cost:>{cost_width}}")
+        lines.extend(frame("Cost Per Day", chart_rows))
+
+    expensive = sorted(views.task_buckets(rows),
+                       key=lambda bucket: -bucket["cost"])[:5]
+    if expensive:
+        lines.append("")
+        task_costs = [ledger.fmt_usd(bucket["cost"], bucket["cost_known"])
+                      for bucket in expensive]
+        task_tokens = [ledger.fmt_tokens(views.total_tokens(bucket))
+                       for bucket in expensive]
+        cost_width = max(len(cost) for cost in task_costs)
+        tokens_width = max(len(tokens) for tokens in task_tokens)
+        label_width = OVERVIEW_WIDTH - 4 - tokens_width - cost_width - 2
+        task_rows = [
+            f"{views.label_of(bucket, label_width, views.UNKNOWN_LONG):<{label_width}}"
+            f" {tokens:>{tokens_width}} {cost:>{cost_width}}"
+            for bucket, tokens, cost in zip(expensive, task_tokens, task_costs)
+        ]
+        lines.extend(frame("Most Expensive Tasks", task_rows))
+
+    lines.extend([
+        "",
+        "Estimated from published API rates; subscription plans are not billed per token.",
+        "Run /token-cost days for the day table, or /token-cost tasks for every task.",
+    ])
+    return "\n".join(lines)
 
 
 def render(columns, buckets, overrides=None) -> str:
@@ -59,8 +209,9 @@ def summary_only(view) -> str:
     return "\n".join([lines[0], lines[-2], lines[-1]])
 
 
-def budget_notice(view, table: str) -> str:
-    """Why a table isn't here, and where to read it instead.
+def budget_notice(view, table: str, unit: str = "rows",
+                  subject: str = "table") -> str:
+    """Why a long chat result isn't here, and where to read it instead.
 
     Inline shell output reaches the conversation through the Bash tool, which
     carries about 30k characters; past that the model is handed a file path
@@ -69,9 +220,9 @@ def budget_notice(view, table: str) -> str:
     the part that still fits -- and point at the UI, which has no ceiling.
     """
     return "\n".join([
-        f"{len(view.buckets):,} rows is {len(table):,} characters — past the"
+        f"{len(view.buckets):,} {unit} is {len(table):,} characters — past the"
         " ~30,000 a conversation",
-        "can carry, so the table would arrive as a file preview rather than rows.",
+        f"can carry, so the {subject} would arrive as a file preview rather than rows.",
         "",
         "  token-cost                 the full list, scrollable",
         "  /token-cost tasks week     the last 7 days, in chat",
@@ -195,6 +346,10 @@ def main() -> int:
         print(launch_block(cwd))
         return 0
 
+    # No arguments means the same Overview the full-screen UI opens on.
+    # Explicit `days` retains the compact row-per-day table for people who
+    # need to copy its individual counters into another tool.
+    show_overview = not args
     mode, period = views.parse_args(args)
 
     # Pull in any sessions that predate the plugin, or that another machine
@@ -230,6 +385,17 @@ def main() -> int:
     if imported:
         print(f"Imported {imported} earlier session(s) from transcripts on disk.")
         print()
+    if show_overview:
+        output = overview(rows, project)
+        if budget and len(output) > budget:
+            print(f"Project: {project}    {view.tasks} tasks    {view.subtitle}")
+            print()
+            print(summary_only(view))
+            print()
+            print(budget_notice(view, output, "days", "overview"))
+            return 0
+        print(output)
+        return 0
     print(f"Project: {project}    {view.tasks} tasks    {view.subtitle}")
     print()
     if budget and len(table) > budget:

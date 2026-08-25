@@ -1,7 +1,7 @@
 {
   "name": "token-cost",
-  "version": "0.10.14",
-  "description": "Records token usage for every completed task into a private per-project ledger, and shows it as a table with /token-cost.",
+  "version": "0.10.15",
+  "description": "Records token usage for every completed task into a private per-project ledger, and shows a visual overview with /token-cost.",
   "author": {
     "name": "Kasun Peiris",
     "email": "peiris@kasun.io"

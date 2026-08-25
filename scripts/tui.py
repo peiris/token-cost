@@ -1385,7 +1385,7 @@ def main() -> int:
         cwd = args[args.index("--cwd") + 1]
     if not sys.stdout.isatty():
         print("token-cost: the UI needs a terminal. Run it from your shell,"
-              " or use /token-cost for the plain table.", file=sys.stderr)
+              " or use /token-cost for the chat overview.", file=sys.stderr)
         return 1
     try:
         curses.wrapper(run, cwd)
