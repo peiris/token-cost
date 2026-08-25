@@ -76,9 +76,12 @@ inside your Claude Code data directory if you want the recorded history gone.
 | `/token-cost tasks`    | one row per task — prompt, model, what it cost |
 | `/token-cost sessions` | one row per session, newest first              |
 | `/token-cost today`    | today only, broken down by model               |
+| `/token-cost week`     | the last 7 days, broken down by model          |
+| `/token-cost month`    | the last 30 days, broken down by model         |
 
-All four read the same ledger and end with a TOTAL row; they differ only in
-what a row means. The examples below are one small project seen four ways.
+They all read the same ledger and end with a TOTAL row; they differ only in
+what a row means, and any of them can be narrowed to a period. The examples
+below are one small project seen several ways.
 
 ### `/token-cost` — by day
 
@@ -132,34 +135,9 @@ account for nearly half of what the project cost.
 subagent. The model named is the one that carried the spend, not just the
 first one seen.
 
-This project has only sixteen tasks, so the table shows every one — longer
-histories stop at the latest 25. Ask for more when you want it:
-
-```
-/token-cost tasks all      every task on record
-/token-cost tasks 100      the latest 100
-```
-
-A cut-off list is footed twice, and each footer says what it covers — a
-subtotal of the rows on screen is not the project's total, and labelling both
-of them TOTAL would invite exactly that misreading:
-
-```
-Project: token-cost    16 tasks    latest 5 of 16 tasks
-
-WHEN         TASK                                                  MODEL      INPUT  OUTPUT  CACHE R  CACHE W  EST. $
-08-25 10:41  /token-cost tasks                                     opus-5         1     189    26.2k     3.5k   $0.05
-08-25 10:22  Add a per-task breakdown to the report                opus-5        33    4.6k   951.2k    26.4k   $0.85
-08-25 09:58  Slash commands should record as the command, not th…  opus-5        17    1.4k   446.6k     3.5k   $0.29
-08-25 09:23  Save the prompt that started each task                opus-5 +1     47   11.5k     3.4M    74.7k   $2.28
-08-24 13:31  Add update instructions to the README                 opus-5        10    1.2k   427.4k     3.4k   $0.28
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-SHOWN (5)                                                                       108   18.8k     5.2M   111.6k   $3.76
-ALL (16)                                                                        393   81.4k    21.8M   474.4k  $16.14
-```
-
-`ALL` here matches the TOTAL of every other view; `SHOWN` is just the five
-rows above it.
+Every task is listed. No cut-off, no "latest N" — a table that quietly drops
+rows is worse than a long one, because nothing on screen tells you something
+is missing. Use a period filter when you want less (below).
 
 ### `/token-cost sessions` — by session
 
@@ -181,7 +159,7 @@ first prompt, which is a better handle on "which session was that" than eight
 characters of a uuid. Long sessions are worth watching: cache reads grow with
 the conversation, so a session's tenth task costs more than its first.
 
-### `/token-cost today` — today, by model
+### `/token-cost today` — a period, by model
 
 ```
 Project: token-cost    4 tasks    today, 2026-08-25
@@ -196,6 +174,32 @@ TOTAL          4     98   17.6k     4.8M   108.2k   $3.48
 Today only — your local calendar day — split by model. The per-model task
 counts overlap on purpose: one of today's four tasks also ran a haiku
 subagent, so it appears on both rows while TOTAL still counts four tasks.
+
+`week` and `month` are the same view over a longer window — the last 7 and
+last 30 days, rolling, not calendar-aligned:
+
+```
+Project: token-cost    16 tasks    last 7 days, 2026-08-19 → 2026-08-25
+
+MODEL      TASKS  INPUT  OUTPUT  CACHE R  CACHE W  EST. $
+opus-5        16    368   71.0k    20.7M   374.1k  $15.85
+haiku-4-5      3     25   10.4k     1.1M   100.3k   $0.29
+─────────────────────────────────────────────────────────
+TOTAL         16    393   81.4k    21.8M   474.4k  $16.14
+```
+
+### Narrowing any view
+
+A period is a filter, not a mode, so it composes with the other views:
+
+```
+/token-cost tasks week        every task in the last 7 days
+/token-cost sessions month    every session in the last 30 days
+/token-cost days month        a row per day for the last 30 days
+```
+
+This is the only thing that ever shortens a report. Whatever the window,
+every row inside it is printed and TOTAL covers exactly what you can see.
 
 ### Keeping the ledger current
 
