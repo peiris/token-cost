@@ -1033,8 +1033,6 @@ def footer_for(tab: int, search: Search) -> str:
         return f"Search: {query}{MARKER} · Enter Apply · Esc Cancel · Ctrl+U Clear"
     if query:
         return f"Filter: {query} · / Edit · Esc Clear · {FILTER_KEYS}"
-    if tab in SEARCHABLE:
-        return f"/ Search · {KEYS}"
     return KEYS
 
 

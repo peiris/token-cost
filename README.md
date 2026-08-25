@@ -342,7 +342,7 @@ scrollable, however many there are:
   │  TOTAL                                                          393   81.4k    21.8M   474.4k  $16.14  │
   │                                                                                                        │
   ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
-  / Search · Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit
+  Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit
 ```
 
 ### Starting it
