@@ -669,22 +669,20 @@ def draw_boxed_table(sc: Screen, view, top: int, left: int, width: int,
     if height < 6:                       # box, header, rule, total, one row
         if has_search and height > 2:
             draw_search_input(sc, search, search_tab, top, left, width)
-            gap = 1 if height > 3 else 0
-            return draw_table(sc, view, top + 1 + gap, left, width,
-                              height - 1 - gap, offset)
+            return draw_table(sc, view, top + 1, left, width, height - 1,
+                              offset)
         return draw_table(sc, view, top, left, width, height, offset)
     panel(sc, top, left, width, height, title)
     # A roomy table gets a three-row input box; compact tables keep a one-row
     # control so at least a couple of records remain visible.
     boxed = has_search and height >= 10
     input_rows = 3 if boxed else 1
-    gap = 1 if has_search else 0
-    minimum = 4 + input_rows + gap if has_search else 4
+    minimum = 4 + input_rows if has_search else 4
     x, y, w, h = inside(left, top, width, height, min_content=minimum,
                          pad_top=not has_search, pad_bottom=has_search)
     if has_search:
         used = draw_search_input(sc, search, search_tab, y, x, w, boxed)
-        y, h = y + used + gap, h - used - gap
+        y, h = y + used, h - used
     return draw_table(sc, view, y, x, w, h, offset)
 
 
@@ -937,14 +935,14 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int,
 
     if not view.buckets:
         if built.query:
-            height = min(room, box_for(5))
+            height = min(room, box_for(4))
             panel(sc, top, left, width, height, label)
-            nx, ny, nw, _ = inside(left, top, width, height, min_content=5,
+            nx, ny, nw, _ = inside(left, top, width, height, min_content=4,
                                    pad_top=False, pad_bottom=True)
             boxed = height >= 8
             used = draw_search_input(sc, search, tab, ny, nx, nw, boxed)
             message = f'No {SEARCHABLE[tab].lower()} match "{built.query}".'
-            sc.put(ny + used + 1, nx, message, curses.color_pair(C_MUTED))
+            sc.put(ny + used, nx, message, curses.color_pair(C_MUTED))
         else:
             panel(sc, top, left, width, box_for(1), label)
             nx, ny, _, _ = inside(left, top, width, box_for(1))
@@ -959,7 +957,7 @@ def draw_tab(sc: Screen, data: Data, tab: int, top: int, offset: int,
         split_h = box_for(len(summary.buckets) + 3)  # header, rows, rule, total
 
     searchable = tab in SEARCHABLE and search is not None
-    if not main.buckets or room < split_h + (12 if searchable else 8):
+    if not main.buckets or room < split_h + (11 if searchable else 8):
         shown = draw_boxed_table(sc, view, top, left, width, room, offset,
                                  view.subtitle, search, tab)
         return shown, len(view.buckets)
