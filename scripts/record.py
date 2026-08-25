@@ -250,27 +250,12 @@ def sync(cwd: str, force: bool = False, transcript=None) -> dict:
     Returns counts; prints nothing.
     """
     result = {"imported": 0, "resumed": 0, "tasks": 0, "skipped": 0,
-              "transcripts": False}
+              "rebuilt": False, "transcripts": False}
     path = ledger.ledger_path(cwd, transcript)
     tdir = ledger.project_transcript_dir(cwd, transcript)
     if tdir is None or not tdir.is_dir():
         return result
     result["transcripts"] = True
-
-    if force:
-        if path.exists():
-            path.unlink()
-        # The offsets have to go with the rows, or a rebuild resumes from
-        # where the deleted ledger had reached and imports nothing. Only
-        # this project's sessions: state lives in one directory for every
-        # project, and clearing all of it would have every other project
-        # re-import from zero and append a duplicate of everything it has.
-        for session_file in tdir.glob("*.jsonl"):
-            state_file = ledger.state_path(session_file.stem, transcript)
-            try:
-                state_file.unlink()
-            except OSError:
-                pass
 
     # One writer at a time per project, so two concurrent /token-cost runs
     # can't both import the same session. Whoever loses the race just skips
@@ -280,6 +265,15 @@ def sync(cwd: str, force: bool = False, transcript=None) -> dict:
         return result
 
     try:
+        # A ledger written by a different format is not imported into -- it
+        # is rebuilt. The stamp beside the ledger names the format that
+        # wrote it; when it disagrees with ledger.FORMAT, or --force asks,
+        # every surviving transcript is re-imported and the result replaces
+        # the old file. The user never meets an old-format row: this runs
+        # inside the SessionStart sync, so opening a project heals it.
+        if force or ledger.stamped_format(cwd, transcript) != ledger.FORMAT:
+            return _rebuild(cwd, transcript, path, tdir, result)
+
         for session_file in sorted(p for p in tdir.glob("*.jsonl") if p.is_file()):
             session_id = session_file.stem
             # Sessions already tracked are read from their recorded offset,
@@ -299,6 +293,61 @@ def sync(cwd: str, force: bool = False, transcript=None) -> dict:
             result["tasks"] += len({r["turn"] for r in rows})
     finally:
         _release_lock(lock)
+    return result
+
+
+def _rebuild(cwd, transcript, path, tdir, result) -> dict:
+    """Re-derive one project's ledger from its transcripts, atomically.
+
+    Runs under the caller's lock, staged so a killed hook can't leave a
+    half-rebuilt ledger: rows are imported into a scratch file, the swap is
+    one rename, and the format stamp is written only after everything else
+    -- any interruption leaves either the old world intact or a finished
+    rebuild, and the next sync tells which by the stamp.
+
+    The old file is copied to `.bak` first, read by nothing: rows whose
+    transcripts have already aged out exist nowhere else after the swap.
+    The one thing a rebuild refuses to do is replace a ledger that has rows
+    with a ledger that has none -- a project whose transcripts are all gone
+    keeps its history, old format and honest Unknowns included, because
+    the alternative is deleting the only record that work ever happened.
+    """
+    import shutil
+
+    tmp = path.with_suffix(f".rebuild.{os.getpid()}")
+    try:
+        tmp.unlink()
+    except OSError:
+        pass
+
+    states = {}
+    imported_rows = 0
+    for session_file in sorted(p for p in tdir.glob("*.jsonl") if p.is_file()):
+        blank = {"turn": 0, "offsets": {}, "seen": [], "prompt": ""}
+        rows, new_state = import_session(session_file, blank)
+        states[session_file.stem] = new_state
+        if rows:
+            ledger.append_rows(tmp, rows)
+            imported_rows += len(rows)
+            result["imported"] += 1
+            result["tasks"] += len({r["turn"] for r in rows})
+
+    had_rows = path.is_file() and bool(ledger.read_ledger(path))
+    if had_rows and not imported_rows:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return result          # unstamped on purpose: retry while unhealed
+
+    if path.is_file():
+        shutil.copyfile(path, path.with_suffix(".jsonl.bak"))
+    if imported_rows:
+        os.replace(tmp, path)
+    for sid, state in states.items():
+        ledger.save_state(sid, state, transcript)
+    ledger.stamp_format(cwd, transcript)
+    result["rebuilt"] = True
     return result
 
 
@@ -337,6 +386,8 @@ def run_backfill(cwd: str, force: bool) -> int:
         print("No transcripts on disk for this project.")
         return 0
     parts = [f"Imported {r['imported']} session(s)"]
+    if r["rebuilt"]:
+        parts.insert(0, "Rebuilt the ledger from transcripts")
     if r["resumed"]:
         parts.append(f"resumed {r['resumed']}")
     parts.append(f"{r['tasks']} task(s)")

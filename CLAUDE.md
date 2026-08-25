@@ -9,12 +9,18 @@ testing). The current ledger format is the only format.
   by older plugin versions — no version-aware branches, no post-hoc fix-up
   passes, no "this field may be missing on old rows" fallbacks, no display
   states that mean "recorded before we tracked this".
-- When the ledger format changes: bump the version and rebuild the data
-  with `python3 scripts/record.py --backfill --force --cwd <project>`.
-  Rebuild promptly — it is lossless only while Claude Code still keeps the
-  transcripts (~30 days).
-- The rebuild stays manual-only. It must never be reachable from `sync()`,
-  hooks, or anything that runs automatically.
+- When the ledger format changes: bump `ledger.FORMAT` and the plugin
+  version. A project whose format stamp disagrees is rebuilt from its own
+  transcripts by that project's next `sync()` — SessionStart there,
+  `/token-cost`, the UI, or `--backfill`. Rebuilds are staged (scratch
+  file, one rename, stamp written last, `.bak` left beside) so a killed
+  hook leaves either the old world or a finished rebuild. Lossless only
+  while Claude Code still keeps the transcripts (~30 days), so a format
+  bump wants releasing promptly.
+- **The plugin acts on the current project only.** Nothing — code or
+  agent — may enumerate, rebuild, or write other projects' ledgers.
+  Healing happens where the user actually runs token-cost, never
+  machine-wide.
 - Version numbers are burned: never reuse or roll back one — the plugin
   cache is keyed by the version string.
 

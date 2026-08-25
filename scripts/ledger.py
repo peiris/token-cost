@@ -83,6 +83,35 @@ def ledger_path(cwd: str, transcript_path=None) -> Path:
     return ledger_dir(transcript_path) / f"{slug_for(cwd)}.jsonl"
 
 
+# The ledger format this code writes. Bump it whenever rows gain a field or
+# change meaning. A project whose stamp disagrees is rebuilt from its
+# transcripts at the next sync -- that is the whole migration story, and why
+# no reader ever needs a "this may be an old row" branch (CLAUDE.md, "No
+# legacy support"). Format 2: rows carry prompt, ctx, and bill.
+FORMAT = 2
+
+
+def format_path(cwd: str, transcript_path=None) -> Path:
+    return ledger_dir(transcript_path) / f"{slug_for(cwd)}.format"
+
+
+def stamped_format(cwd: str, transcript_path=None) -> int:
+    """The format that wrote this project's ledger; 0 when never stamped,
+    which reads as 'older than every numbered format' and forces a rebuild."""
+    try:
+        return int(format_path(cwd, transcript_path).read_text().strip())
+    except (OSError, ValueError):
+        return 0
+
+
+def stamp_format(cwd: str, transcript_path=None) -> None:
+    target = format_path(cwd, transcript_path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_text(str(FORMAT), encoding="utf-8")
+    os.replace(tmp, target)
+
+
 def state_path(session_id: str, transcript_path=None) -> Path:
     return state_dir(transcript_path) / f"{session_id}.json"
 
@@ -137,17 +166,26 @@ def subagent_files(transcript) -> list:
 
 
 def _first_cwd(transcript: Path):
-    """The cwd recorded on the first entry of a transcript, if any."""
+    """The first cwd a transcript records, if any.
+
+    Not the first entry's: transcripts open with mode and session-bridge
+    entries that carry no cwd at all, and stopping there reads every
+    transcript as placeless. Scan into the file -- bounded, because a cwd
+    shows up within the first few real entries or not at all."""
     try:
         with open(transcript, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
+            for i, line in enumerate(fh):
+                if i >= 50:
+                    break
                 line = line.strip()
                 if not line:
                     continue
                 try:
-                    return json.loads(line).get("cwd")
+                    cwd = json.loads(line).get("cwd")
                 except ValueError:
-                    return None
+                    continue
+                if cwd:
+                    return cwd
     except OSError:
         return None
     return None

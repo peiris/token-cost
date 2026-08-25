@@ -18,7 +18,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/record.py\" --sync",
-            "timeout": 30
+            "timeout": 120
           },
           {
             "type": "command",
