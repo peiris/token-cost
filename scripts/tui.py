@@ -75,6 +75,7 @@ if UNICODE:
     T_DOWN, T_UP = "┬", "┴"
     HALF_DOWN, HALF_UP = "▄", "▀"
     LOGO = "▂▄▆█"          # a rising bar chart: what this thing is about
+    PILL_L, PILL_R = "▐", "▌"   # half blocks: a button end that stops mid-cell
     SEP, ELLIPSIS = "│", "…"
     LEFT_ARROW, RIGHT_ARROW = "‹", "›"
     KEYS = "←/→ Tabs · ↑/↓ Scroll · r Refresh · q Quit"
@@ -87,6 +88,7 @@ else:
     T_DOWN, T_UP = "+", "+"
     HALF_DOWN, HALF_UP = None, None
     LOGO = "..:#"
+    PILL_L, PILL_R = "[", "]"
     SEP, ELLIPSIS = "|", "~"
     LEFT_ARROW, RIGHT_ARROW = "<", ">"
     KEYS = "Left/Right Tabs - Up/Down Scroll - r Refresh - q Quit"
@@ -522,7 +524,10 @@ def draw_nav(sc: Screen, tab: int, y: int, x: int, width: int) -> None:
     """
     labels = [label for label, _, _ in TABS]
     cells = nav_cells(labels)
-    span = sum(len(c) for c in cells) + len(cells) - 1
+    # The selected button carries an end cap either side. A cap is half a
+    # cell of colour, so the fill stops mid-cell rather than on a cell
+    # boundary -- as close to a rounded end as a character grid gets.
+    span = sum(len(c) for c in cells) + len(cells) - 1 + 2
     if span > width:                       # no room: name the current tab
         place = f"{tab + 1}/{len(TABS)}"
         centred(sc, y, x, width, [
@@ -533,14 +538,18 @@ def draw_nav(sc: Screen, tab: int, y: int, x: int, width: int) -> None:
         ])
         return
 
+    accent = curses.color_pair(C_ACCENT)
     at = x + max(0, (width - span) // 2)
     for i, cell in enumerate(cells):
         if i == tab:
-            sc.put(y, at, cell,
-                   curses.color_pair(C_ACCENT) | curses.A_REVERSE | curses.A_BOLD)
+            sc.put(y, at, PILL_L, accent)
+            sc.put(y, at + 1, cell, accent | curses.A_REVERSE | curses.A_BOLD)
+            sc.put(y, at + 1 + len(cell), PILL_R, accent)
+            at += len(cell) + 2
         else:
             sc.put(y, at, cell, curses.color_pair(C_MUTED))
-        at += len(cell) + 1
+            at += len(cell)
+        at += 1
 
 
 def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
@@ -563,7 +572,7 @@ def draw_chrome(sc: Screen, data: Data, tab: int) -> int:
 
     # Shed the trailing detail rather than run into the frame: the project
     # goes first, then the version, and the name always survives.
-    mark = [(LOGO, accent), ("  token-cost", accent | curses.A_BOLD)]
+    mark = [(LOGO, accent), ("  Claude Token Cost", accent | curses.A_BOLD)]
     tag = [(f" {version()}", muted)] if version() else []
     where = [("  ·  ", muted), (data.project, curses.A_BOLD)]
     for parts in (mark + tag + where, mark + tag, mark):

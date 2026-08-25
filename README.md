@@ -272,9 +272,9 @@ show:
 ```
   ╭────────────────────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                        │
-  │                                 ▂▄▆█  token-cost v0.8.1  ·  token-cost                                 │
+  │                             ▂▄▆█  Claude Token Cost v0.8.2  ·  token-cost                              │
   │                                                                                                        │
-  │                      Overview   Today   This Week   This Month   Tasks   Sessions                      │
+  │                    ▐ Overview ▌  Today   This Week   This Month   Tasks   Sessions                     │
   │                                                                                                        │
   ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
@@ -312,9 +312,9 @@ scrollable, however many there are:
 ```
   ╭────────────────────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                        │
-  │                                 ▂▄▆█  token-cost v0.8.1  ·  token-cost                                 │
+  │                             ▂▄▆█  Claude Token Cost v0.8.2  ·  token-cost                              │
   │                                                                                                        │
-  │                      Overview   Today   This Week   This Month   Tasks   Sessions                      │
+  │                     Overview   Today   This Week   This Month  ▐ Tasks ▌  Sessions                     │
   │                                                                                                        │
   ╰────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
