@@ -201,6 +201,25 @@ A period is a filter, not a mode, so it composes with the other views:
 This is the only thing that ever shortens a report. Whatever the window,
 every row inside it is printed and TOTAL covers exactly what you can see.
 
+### What running this costs
+
+Recording costs nothing at all: the `Stop` and `SessionStart` hooks are plain
+Python, and no model is involved in reading a transcript or writing a row.
+
+The only model in the loop is the one that prints the table. Inline shell
+output is substituted into the prompt rather than shown directly, so the
+command asks for it to be echoed back — mechanical work with no judgement in
+it, and no reason to spend a frontier model on. The command is pinned:
+
+```yaml
+model: sonnet
+```
+
+The override lasts for that turn only; your session model resumes on your next
+prompt. To change it, edit `model:` in `commands/token-cost.md` — it takes the
+same values as `/model`, or `inherit` to stay on whatever the session is using.
+Adding `effort: low` alongside it trims the cost further.
+
 ### Keeping the ledger current
 
 The ledger is brought up to date on every session start, and again whenever
