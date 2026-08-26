@@ -389,33 +389,26 @@ Nothing, in the ordinary case: no model is asked anything.
 Recording never involved one — the `Stop` and `SessionStart` hooks are plain
 Python, and reading a transcript to write a row needs no judgement.
 
-Printing used to. Inline shell output is substituted into the prompt rather
-than shown directly, so the command asked the model to echo it back, and a
-page of table is expensive to retype: 2929 output tokens for one overview,
-arriving a line at a time while you watch. A `UserPromptSubmit` hook now
-recognises the command before it expands, prints the report itself and stops
-the turn — the page arrives whole, and the model is never woken.
+Printing still does. Inline shell output is substituted into the prompt rather
+than shown directly, so the command asks the model to echo it back, and a page
+of table costs something to retype: 1252 output tokens for one overview,
+arriving a line at a time while you watch.
 
-The hook sees every prompt you type, so it is built to be cheap and to be
-wrong in the safe direction. A prompt that isn't this command costs one
-interpreter start, about 30ms, and nothing heavier is imported until the text
-matches. Matching is strict about the whole prompt rather than its opening,
-because `/token-cost is slow, fix it` is a question for the model and
-answering it with a table would be worse than being slow. Anything it doesn't
-recognise — an unknown argument, an unreadable ledger — falls through
-untouched, and the slash command answers it the old way.
+A `UserPromptSubmit` hook can skip that entirely — recognise the command
+before it expands, print the report itself, stop the turn — and it does, for
+nothing, when `TOKEN_COST_FAST=1` is set. It is not the default, because
+Claude Code announces a stopped turn: `⏺ Operation stopped by hook:` above the
+page, in amber. The colour the page can undo, by closing it again at the start
+of every line — a zero-width escape, so no column moves, and left out entirely
+where the output isn't going to a terminal. The line it cannot. Ink sanitises
+cursor movement out of hook text while keeping colour, so nothing the hook
+returns can reach the row above it.
 
-Claude Code announces a stopped turn in amber, re-opening the colour at the
-start of every line, so a report handed back that way inherits it and ends up
-looking like a warning about itself. On a terminal the page closes the colour
-again per line — a zero-width escape, so nothing moves — and reads as a page.
-Where the output isn't going to a terminal the escape is left out, since a
-frontend that renders Claude Code some other way might print it rather than
-act on it. The one line Claude Code writes above the page is its own.
+So the default is the model's own message, which arrives under a plain bullet
+with no frame around it, and the fast path is there for anyone who would
+rather have the page now than have it unannounced.
 
-`TOKEN_COST_NO_INTERCEPT=1` always takes that older route.
-
-It is still worth keeping cheap, because it is the fallback:
+Being the default, it is kept as cheap as a page of table can be:
 
 ```yaml
 model: haiku

@@ -32,6 +32,7 @@ BUDGET = 28000
 # the page reads as a page. Zero width, so nothing it prefixes moves.
 PLAIN = "\x1b[0m"
 
+
 # Both ways Claude Code writes this command's name: bare, and qualified by
 # the plugin it came from.
 NAMES = ("/token-cost:token-cost", "/token-cost")
@@ -97,7 +98,7 @@ def terminal() -> bool:
 
 
 def main() -> int:
-    if os.environ.get("TOKEN_COST_NO_INTERCEPT"):
+    if not os.environ.get("TOKEN_COST_FAST"):
         return 0
     try:
         event = json.loads(sys.stdin.read() or "{}")
