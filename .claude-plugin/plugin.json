@@ -1,6 +1,6 @@
 {
   "name": "token-cost",
-  "version": "0.11.4",
+  "version": "1.0.0",
   "description": "Claude Code plugin that tracks token usage and estimated cost per task and project",
   "author": {
     "name": "Kasun Peiris",
