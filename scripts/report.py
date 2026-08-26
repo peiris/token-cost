@@ -38,7 +38,7 @@ PLUGIN_ROOT = HERE.parent
 # attached to, and that process is one of our own ancestors -- so walk up to
 # it and ask its TTY.
 CHAT_RESERVE = 10    # message indent, the code block's padding, autowrap slack
-CHAT_ROWS = 100      # rows a table keeps when the whole list won't fit
+CHAT_ROWS = 50       # rows a table keeps when the whole list won't fit
 MIN_WIDTH, MAX_WIDTH = 44, 100
 FALLBACK_WIDTH = 74  # a plain 80-column terminal, less that same reserve
 
@@ -483,7 +483,7 @@ def tab_report(rows: list[dict], project: str, mode: str, period: str | None,
 
     `budget` is the ceiling on what a conversation can carry. Over it the
     table stops after CHAT_ROWS rows rather than losing all of them: the
-    first hundred are the ones being asked for, and the table says on its
+    first fifty are the ones being asked for, and the table says on its
     last row how many it left behind.
     """
     # A tab is a mode and a period, so a narrowing the UI doesn't offer --
@@ -511,7 +511,7 @@ def tab_report(rows: list[dict], project: str, mode: str, period: str | None,
                     + budget_notice(built.main, full, budget, width,
                                     limit).split("\n"))
 
-        # A hundred rows fit any pane this prints into, but --budget is a
+        # Fifty rows fit any pane this prints into, but --budget is a
         # ceiling and not a suggestion: halve the cap until the page it
         # produces is one the conversation can actually carry.
         limit = CHAT_ROWS

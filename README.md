@@ -217,8 +217,8 @@ reaches Claude through the Bash tool, which carries about 30,000 characters
 file path and a preview instead of a table, so printing more doesn't produce a
 longer table — it produces none. When a task list would cross that line the
 page stays the page: same tab, same model split, and the table itself down to
-its first hundred rows, with its last row naming what it left behind (four
-rows here, where the page you get carries a hundred):
+its first fifty rows, with its last row naming what it left behind (four
+rows here, where the page you get carries fifty):
 
 ```
 ╭──────────────────────────────────────────────────────────────────────────────────────╮
@@ -245,20 +245,20 @@ rows here, where the page you get carries a hundred):
 │  08-26 19:37  /token-cost tasks       haiku-4-5      12    1.1k   302.9k      $0.24  │
 │  08-26 18:55  Add the assay results…  opus-5 +1     164   28.9k    11.3M      $9.06  │
 │                                                                                      │
-│  Showing 100 tasks out of 930. Run /token-cost html to get full report.              │
+│  Showing 50 tasks out of 930. Run /token-cost html to get full report.               │
 │  ──────────────────────────────────────────────────────────────────────────────────  │
 │  TOTAL                                           102.3k   22.5M  8928.0M  $7,104.78  │
 │                                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────╯
 
 930 tasks is 83,392 characters — past the 28,000 a conversation can carry, so the
-table above stops at 100.
+table above stops at 50.
 
   token-cost                 the full list, scrollable
   /token-cost tasks week     the last 7 days, in chat
 ```
 
-A hundred rows is more than a chat message is usually read for, and the model
+Fifty rows is more than a chat message is usually read for, and the model
 split above them is the part that speaks for all 930. Run `report.py` from a
 shell and there is no budget at all — it prints all 930 rows. The ceiling only
 applies to what has to travel through a chat message.
