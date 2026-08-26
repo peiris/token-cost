@@ -937,10 +937,16 @@ def draw_nav(sc: Screen, tab: int, row: int, x: int, width: int,
 
 
 def footer_for(tab: int, search: Search) -> str:
-    """The normal shortcuts, or the active filter and its controls."""
+    """The normal shortcuts, or the active filter and its controls.
+
+    Nothing at all while the field is being typed in. The field is on
+    screen with the caret in it, and a second copy of the query along the
+    bottom edge only said again what the user could already see themselves
+    typing.
+    """
     query = search.query(tab)
     if search.editing == tab:
-        return f"Search: {query}{MARKER} · Enter Apply · Esc Cancel · Ctrl+U Clear"
+        return ""
     if query:
         return f"Filter: {query} · / Edit · Esc Clear · {FILTER_KEYS}"
     return KEYS

@@ -122,6 +122,16 @@ class App:
                 return True
         return False
 
+    def wait_until_gone(self, text: str, seconds=3.0) -> bool:
+        """Drain until `text` is off screen again -- the mirror of wait_for,
+        for a change that removes something rather than drawing it."""
+        deadline = time.time() + seconds
+        while time.time() < deadline:
+            self.read(0.15)
+            if text not in self.screen():
+                return True
+        return False
+
     def alive(self) -> bool:
         return os.waitpid(self.pid, os.WNOHANG) == (0, 0)
 
@@ -549,7 +559,7 @@ def run_search(cwd: str) -> list:
                 app.close()
                 continue
             app.send(sgr_click(*field))
-            if not app.wait_for("Enter Apply"):
+            if not app.wait_for("Type a name to filter"):
                 problems.append("search: clicking task input did not focus it")
                 app.close()
                 continue
@@ -560,11 +570,13 @@ def run_search(cwd: str) -> list:
             problems.append(f"search: {mode} query did not narrow to {title}")
             app.close()
             continue
-        if f"Search: {typed}" not in app.screen():
+        # The field is the only place the query is drawn, and it is drawn as
+        # typed -- the rows it matched keep their own case.
+        if typed not in app.screen():
             problems.append(f"search: {mode} input was not visible")
 
         app.send(b"\x7f")
-        if not app.wait_for(f"Search: {typed[:-1]}"):
+        if not (app.wait_until_gone(typed) and typed[:-1] in app.screen()):
             problems.append(f"search: {mode} backspace did not edit the query")
         app.send(b"\x1b")              # cancel restores the original empty query
         if not app.wait_for(unfiltered):
