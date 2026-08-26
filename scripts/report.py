@@ -41,14 +41,12 @@ CHAT_RESERVE = 10    # message indent, the code block's padding, autowrap slack
 MIN_WIDTH, MAX_WIDTH = 44, 100
 FALLBACK_WIDTH = 74  # a plain 80-column terminal, less that same reserve
 
-# The frames, the tab bar and the arithmetic that places every figure are the
-# full-screen UI's, mirrored here so the two read as one thing seen twice.
-# Each constant below names the tui.py one it tracks.
+# The frames and the arithmetic that places every figure are the full-screen
+# UI's, mirrored here so the two read as one thing seen twice. Each constant
+# below names the tui.py one it tracks.
 PAD_X = 2            # tui.PAD_X: columns of air inside a frame
 GAP = 2              # columns between two panels sharing a row
 STACK_BELOW = 68     # tui.draw_overview: narrower than this, panels stack
-LABEL_INSET = 2      # tui.LABEL_INSET: the marker column, then a space
-NAV_GAP = 3          # tui.NAV_GAP
 STATS_MIN = 30       # tui.draw_overview: the Project panel's floor
 
 
@@ -195,40 +193,16 @@ def side_by_side(left: list[str], right: list[str]) -> list[str]:
     return [(a + " " * GAP + b).rstrip() for a, b in zip(left, right)]
 
 
-def nav_row(width: int, active: int | None = 0) -> str:
-    """The tab bar with Overview marked, laid out the way tui.draw_nav lays
-    it: each name in its own gutter -- the marker column, then a space -- so
-    the row keeps one rhythm whichever tab is selected.
+def chrome(width: int, project: str) -> list[str]:
+    """The masthead, which is as much chrome as a printed report has.
 
-    The qualifier goes before the spacing does, and the spacing before the
-    row does: "Week" in its place tells you more than one name and a counter.
-    """
-    labels = [label for label, _, _ in views.TABS]
-    short = [label.replace("This ", "") for label in labels]
-
-    def span(names, gap):
-        return sum(LABEL_INSET + len(n) for n in names) + gap * (len(names) - 1)
-
-    for names, gap in ((labels, NAV_GAP), (short, NAV_GAP),
-                       (short, NAV_GAP - 1), (short, 1)):
-        if span(names, gap) <= width:
-            cells = [("▌ " if i == active else "  ") + name
-                     for i, name in enumerate(names)]
-            return (" " * gap).join(cells).ljust(width)
-    if active is None:
-        return centre(f"‹ {len(labels)} tabs ›", width)
-    return centre(f"‹ {labels[active]}  {active + 1}/{len(labels)} ›", width)
-
-
-def chrome(width: int, project: str, active: int | None = 0) -> list[str]:
-    """The masthead and the tab bar, as tui.draw_chrome draws them.
-
-    One piece of chrome rather than two stacked boxes: the frames share a
-    rule, and the shared row's ends become tees. Two lines a row apart read
-    as a gap between them.
+    The UI carries a tab bar under a shared rule here, because it has a
+    keyboard and five other tabs to reach with it. A page in a chat has
+    neither: the bar would be six words you cannot press, sitting above the
+    one view you actually asked for. So the masthead closes, and each panel
+    keeps saying what it holds in its own title.
     """
     inner = width - 2 - 2 * PAD_X
-    pad = " " * PAD_X
     mark = "▂▄▆█  Claude Token Cost"
     stamp = version()
     tag = f" {stamp}" if stamp else ""
@@ -236,11 +210,7 @@ def chrome(width: int, project: str, active: int | None = 0) -> list[str]:
     # goes first, then the version, and the name always survives.
     title = next((text for text in (mark + tag + f"  ·  {project}", mark + tag,
                                     mark) if len(text) <= inner), mark)
-    lines = frame("", [centre(title, inner)], width)[:-1]   # keep it open
-    lines.append("├" + "─" * (width - 2) + "┤")
-    lines.append(f"│{pad}{nav_row(inner, active)}{pad}│")
-    lines.append("╰" + "─" * (width - 2) + "╯")
-    return lines
+    return frame("", [centre(title, inner)], width)
 
 
 def figure_row(left: str, tokens: str, cost: str, width: int,
@@ -507,12 +477,10 @@ def tab_report(rows: list[dict], project: str, mode: str, period: str | None,
     one part of the tab that has somewhere else to be read.
     """
     # A tab is a mode and a period, so a narrowing the UI doesn't offer --
-    # `/token-cost tasks week` -- still gets the two views a tab has. It
-    # just has no name on the bar to mark.
+    # `/token-cost tasks week` -- still gets the two views a tab has.
     built = views.Tab(rows, mode, period, unknown="—")
-    index = views.tab_index(mode, period)
 
-    lines = chrome(width, project, index)
+    lines = chrome(width, project)
     if built.summary is not None:
         lines.append("")
         lines += boxed(built.summary_title, built.summary, width)

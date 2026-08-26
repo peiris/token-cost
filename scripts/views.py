@@ -472,18 +472,6 @@ def build(rows, mode, scope="", label_width=None, unknown="—") -> View:
     )
 
 
-def tab_index(mode: str, period: str | None):
-    """The tab a report's (mode, period) is, or None if it isn't one.
-
-    `/token-cost tasks week` is a narrowing no tab offers, and marking the
-    nearest one would be a lie about what is on screen. Nothing is marked.
-    """
-    for index, (_, tab_mode, tab_period) in enumerate(TABS):
-        if tab_mode == mode and tab_period == period:
-            return index
-    return None
-
-
 class Tab:
     """The tables one tab shows, and what to call each of them.
 

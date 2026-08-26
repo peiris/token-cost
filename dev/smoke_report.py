@@ -176,11 +176,25 @@ UI_ONLY = ("Click or ", "Click or Left", "Press / or click", "Filter:",
 BLANK_RIGHT = re.compile(r"^[╰│].*[╯│] {2}│ +│$")
 
 
+# The rule under the masthead and the tab bar beneath it. The UI has a
+# keyboard and five other tabs to reach with it; a printed report has
+# neither, so it closes the masthead instead and these two rows are the
+# UI's alone.
+NAV_RULE = re.compile(r"^├─+┤$")
+
+
 def ui_lines(frame: list[str]) -> list[str]:
     """The frame's content, less the parts only a live UI can have."""
     kept = []
+    nav = False
     for line in frame:
         text = line[2:].rstrip() if line.startswith("  ") else line.rstrip()
+        if nav:
+            nav = False          # the tab bar, immediately under its rule
+            continue
+        if NAV_RULE.match(text):
+            nav = True
+            continue
         if (not text or any(mark in text for mark in UI_ONLY)
                 or text.startswith(("│  ╭", "│  ╰"))
                 or BLANK_RIGHT.match(text)):
