@@ -104,6 +104,7 @@ inside your Claude Code data directory if you want the recorded history gone.
 | `/token-cost week`     | the last 7 days, a row per day                 |
 | `/token-cost month`    | the last 30 days, a row per day                |
 | `/token-cost ui`       | opens the full-screen UI in a new window       |
+| `/token-cost html`     | opens the whole report as a page in your browser |
 
 They all read the same ledger, and every one of them is a tab of the
 full-screen UI, printed. Each names its tab on the bar, leads with the
@@ -583,11 +584,65 @@ It needs nothing beyond `python3` — the UI is stdlib `curses`. Box-drawing and
 colour are used when the locale supports them and ASCII stands in when it
 doesn't, so `LC_ALL=C` degrades instead of drawing blanks.
 
+## In the browser
+
+```
+/token-cost html
+```
+
+The same UI a third time, as a page. `/token-cost html` builds it, opens it,
+and tells the conversation where it went — there is nothing to read in the
+chat, because everything is in the other window. `token-cost html` does the
+same from a shell.
+
+It exists because the other two frontends both have a ceiling and this one
+has none. A chat message can carry about 28,000 characters, so a long table
+stops at fifty rows and says so. A terminal has a bottom edge and a column
+count, so a narrow one gives up columns in `DROP_ORDER` to keep its figures.
+A page has neither: every tab, every task on record, every column, and the
+prompt in full when you hover a row that was too long for its cell.
+
+What a browser adds on top is the two things a terminal table can't do.
+Click any column header to sort by it — down, then up, then back to the order
+the ledger came in. Type in the box on **All Tasks** or **Sessions** and the
+table narrows as you go, TOTAL included: the footer is recomputed over
+exactly the rows left, so it always adds up to what you can see.
+
+`←`/`→` or `1`–`6` move between tabs, `/` focuses the search, `Esc` clears it,
+`g`/`G` jump to top and bottom. The tab you are on is in the URL, so a reload
+comes back to it.
+
+<details>
+<summary>Why the page carries its own data instead of reading the ledger</summary>
+
+A page opened with `file://` cannot read another file: every browser gives
+it an opaque origin, so `fetch()` at the ledger is blocked. Working around
+that needs a local server — a process, a port, and a report that stops being
+a file you can keep.
+
+So the page is one self-contained file, and what is baked into it is not a
+copy of the ledger but the views built from it: about half the size of the
+ledger it came from, because it is the roll-up rather than the rows. It has
+to be built in Python anyway. Bucketing, pricing, prompt condensing and
+period windows all live in `views.py`, and every cell on the page is rendered
+there, by the same code the other two frontends render theirs with.
+
+Even the arithmetic has to come from there. Python rounds half to even and
+JavaScript rounds half away from zero, so 1,250 tokens is `1.2k` in the
+terminal and `1.3k` through `toFixed` — the same figure disagreeing with
+itself depending on where you read it. The page needs to add up one thing
+Python couldn't know in advance, the footer over a table you have filtered,
+so it carries a formatter that rounds Python's way. `dev/smoke_html.py`
+runs the two against each other over several hundred values, ties included.
+
+</details>
+
 ## Where the data lives
 
 ```
 <claude-data-dir>/token-cost/<project-key>.jsonl     the ledger
 <claude-data-dir>/token-cost/.state/<session>.json   per-session scan cursors
+<claude-data-dir>/token-cost/.reports/<key>.html     the browser report
 ```
 
 `<claude-data-dir>` is wherever Claude Code already keeps its data — usually
@@ -597,6 +652,10 @@ that, so a relocated or shared config directory works without configuration.
 
 Nothing is written inside your project, so there is no chance of committing it
 by accident, and it survives re-cloning the repo. Nothing leaves your machine.
+
+The browser report is one file per project, rewritten in place on every
+`/token-cost html` — so the tab you already have open reloads onto the new
+one rather than joining forty others in a temp directory.
 
 One ledger line per task, per model. This is the "Save the prompt that started
 each task" row from the tasks table above, before the haiku subagent line that
@@ -722,6 +781,23 @@ one property a full-screen layout has to hold whatever room it is given:
 every box that opens closes, and nothing paints over the edges in between.
 A label one column too long for its panel doesn't fall off the screen — it
 lands on that panel's border, and the frame stops reading as a frame.
+
+`dev/smoke_html.py` holds the browser report to three properties, because
+one file opened with `file://` has nothing to fall back on: a placeholder
+left unfilled or a prompt that closes the script element early, and the page
+is blank with no error anyone will see. So it has to be **whole** — every
+placeholder filled, the payload parsing back out as JSON, nothing on the page
+reaching for a host, and a prompt containing `</script>` surviving the round
+trip. It has to be **complete**, since it is the answer to the other two
+frontends' ceilings: every tab carrying every row its view holds, and every
+column. And it has to **agree** — every cell the one `views.py` rendered.
+
+Then, where `node` is on PATH, it runs the page's own script against a
+stub DOM and checks the part no Python can: that every tab draws every row,
+that filtering keeps the rows it should, that a filtered TOTAL is the figure
+`views.py` would have printed over exactly those rows, and that the page's
+formatters match `ledger.py`'s over several hundred values — the exact ties
+included, which is where a browser's rounding parts company with Python's.
 
 `dev/bench_tui.py` does the same for the UI, which has its own kind of
 correctness: a table you can't scroll smoothly is a table you don't read. It

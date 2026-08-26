@@ -1273,6 +1273,11 @@ def main() -> int:
     cwd = str(Path.cwd())
     if "--cwd" in args:
         cwd = args[args.index("--cwd") + 1]
+    if any(a.lower() in views.HTML_WORDS for a in args):
+        # `token-cost html`: the same ledger, in the browser instead. It
+        # needs no terminal, so it is answered before the TTY check below.
+        import html_report
+        return html_report.cli(cwd)
     if not sys.stdout.isatty():
         print("token-cost: the UI needs a terminal. Run it from your shell,"
               " or use /token-cost for the chat overview.", file=sys.stderr)

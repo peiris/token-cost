@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>__TOKEN_COST_TITLE__</title>
+<style>
+/* The UI seen a third time.
+
+   Same frames, same titles set into their top edges, same two columns of air
+   inside them, same colours -- xterm 209 for the accent and 245 for the
+   muted grey, which is what tui.py asks the terminal for. Dark only: this is
+   a terminal app that happens to be on a page, and a terminal is dark.
+
+   What the page has instead of glyphs is borders and background, because a
+   border stays one pixel at any zoom while a run of box-drawing characters
+   does not. Everything else is measured in ch and em, so the layout keeps
+   the terminal's rhythm rather than a web page's. */
+:root{
+  color-scheme:dark;
+  --bg:#121212;
+  --text:#cfcfcf;
+  --edge:#3a3330;
+  --muted:#8a8a8a;      /* xterm 245 */
+  --accent:#ff875f;     /* xterm 209, tui.py's warm coral */
+  --band:#3a3a3a;       /* xterm 237, the hovered row */
+  --band-text:#dadada;  /* xterm 253 */
+  --pad:2ch;            /* tui.PAD_X: two columns of air inside a frame */
+}
+*{box-sizing:border-box}
+html{scroll-padding-top:calc(var(--chrome-h, 96px) + 1em)}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--text);
+  font:13px/1.6 ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"DejaVu Sans Mono",monospace;
+  -webkit-font-smoothing:antialiased;
+}
+.page{max-width:1240px;margin:0 auto;padding:0 var(--pad) 4em}
+
+/* ---- chrome: the masthead and the tab bar, sharing a rule ---- */
+.sticky{position:sticky;top:0;z-index:20;background:var(--bg);padding:1.2em 0 1em}
+.chrome{border:1px solid var(--edge);border-radius:10px}
+.mast{padding:1.15em var(--pad);text-align:center;border-bottom:1px solid var(--edge)}
+.mast .logo{color:var(--accent);letter-spacing:.05em}
+.mast .name{font-weight:700;color:var(--accent)}
+.mast .version,.mast .dot{color:var(--muted)}
+.mast .project{font-weight:700}
+/* tui.draw_nav: every tab reserves the marker's gutter whether or not it is
+   the selected one, so the row doesn't shift sideways as you move along it. */
+.tabs{display:flex;flex-wrap:wrap;gap:0 3ch;padding:.55em var(--pad)}
+.tab{
+  appearance:none;background:none;border:0;padding:.15em 0;
+  color:var(--muted);font:inherit;cursor:pointer;white-space:nowrap;
+}
+.tab::before{content:"\00a0\00a0";color:var(--accent)}
+.tab:hover{color:var(--text)}
+.tab[aria-current="true"]{color:var(--accent);font-weight:700}
+.tab[aria-current="true"]::before{content:"\258C\00a0"}
+.tab:focus-visible{outline:1px solid var(--accent);outline-offset:2px}
+
+/* ---- panels: tui.panel, with its title set into the top edge ---- */
+.panel{
+  position:relative;border:1px solid var(--edge);border-radius:10px;
+  padding:1.15em var(--pad);margin:1.3em 0 0;
+}
+.panel > .title{
+  position:absolute;top:0;left:calc(var(--pad) - .5ch);transform:translateY(-50%);
+  margin:0;padding:0 .75ch;background:var(--bg);
+  color:var(--accent);font-size:1em;font-weight:400;white-space:nowrap;
+}
+.grid{display:grid;grid-template-columns:minmax(30ch,1fr) 2fr;gap:0 2ch}
+@media (max-width:68em){.grid{grid-template-columns:1fr}}
+
+/* ---- the rows inside a panel ---- */
+.row{display:flex;align-items:baseline;gap:0 2ch;white-space:nowrap}
+.row:hover{background:var(--band);color:var(--band-text)}
+.row .grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.row .name{flex:none;min-width:14ch}
+/* views.model_figures: the tally is right-aligned into six columns so the
+   digits form a column of their own, and sits hard against the name. */
+.row.tight{gap:0}
+.row .tally{flex:none;min-width:12ch;text-align:right}
+.row .muted,.row .when,.row .at,.row .tokens{color:var(--muted)}
+.row:hover .muted,.row:hover .when,.row:hover .at,.row:hover .tokens{color:var(--muted)}
+.row .cost{font-weight:700;text-align:right;min-width:8ch;flex:none}
+.row .when{flex:none;width:5ch}
+.row .at{flex:none;width:12ch}
+.row .tag{flex:none;width:9ch;color:var(--accent)}
+.row .tokens{flex:none;text-align:right;min-width:9ch}
+.facts .lead,.facts .money{color:var(--accent);font-weight:700}
+.facts .span{color:var(--muted)}
+.aside{color:var(--muted)}
+
+/* tui.bar, in CSS: the filled run is a half-height block sitting on the
+   baseline, the remainder the dashed track it leaves behind. */
+.bar{position:relative;flex:1;min-width:8ch;height:1.6em;align-self:center}
+.bar .track{
+  position:absolute;left:0;right:0;top:50%;height:1px;
+  background:repeating-linear-gradient(to right,
+    var(--muted) 0 2px,transparent 2px 5px);
+}
+.bar .fill{position:absolute;left:0;bottom:.42em;height:.45em;background:var(--accent)}
+.edge{color:var(--accent);flex:none}
+
+/* ---- tables ---- */
+.search{
+  display:flex;align-items:baseline;gap:0 2ch;
+  border:1px solid var(--edge);border-radius:8px;
+  padding:.35em var(--pad);margin:.2em 0 1em;
+}
+.search:focus-within{border-color:var(--accent)}
+.search input{flex:1;min-width:0;background:none;border:0;color:var(--text);font:inherit;outline:none}
+.search input::placeholder{color:var(--muted)}
+.search .hint{color:var(--muted);cursor:pointer;white-space:nowrap}
+.search .hint:hover{color:var(--accent)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{
+  position:sticky;top:var(--chrome-h,0);z-index:5;background:var(--bg);
+  text-align:left;white-space:nowrap;font-weight:700;color:var(--accent);
+  padding:0 2ch .35em 0;cursor:pointer;user-select:none;
+}
+th:last-child,td:last-child{padding-right:0}
+th.num,td.num{text-align:right}
+th[data-dir="desc"]::after{content:"\00a0\2193";color:var(--muted)}
+th[data-dir="asc"]::after{content:"\00a0\2191";color:var(--muted)}
+td{padding:0 2ch 0 0;white-space:nowrap}
+td.grow{max-width:0;width:100%;overflow:hidden;text-overflow:ellipsis}
+tbody tr:hover{background:var(--band);color:var(--band-text)}
+tbody tr:hover .aside{color:var(--muted)}
+tfoot td{
+  position:sticky;bottom:0;background:var(--bg);
+  border-top:1px solid var(--accent);
+  color:var(--accent);font-weight:700;padding-top:.3em;padding-bottom:.4em;
+}
+.empty,.note{color:var(--muted)}
+.note{margin:1em 0 0}
+.legend{
+  display:flex;justify-content:space-between;gap:0 3ch;flex-wrap:wrap;
+  color:var(--muted);margin-top:1.6em;
+}
+.legend b{color:var(--text);font-weight:400}
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="sticky">
+    <header class="chrome">
+      <div class="mast" id="mast"></div>
+      <nav class="tabs" id="tabs" aria-label="Views"></nav>
+    </header>
+  </div>
+  <main id="body"></main>
+  <footer class="legend" id="legend"></footer>
+</div>
+
+<script id="token-cost-data" type="application/json">__TOKEN_COST_DATA__</script>
+<script>
+"use strict";
+
+const DATA = JSON.parse(document.getElementById("token-cost-data").textContent);
+
+// --------------------------------------------------------------------------
+// figures
+// --------------------------------------------------------------------------
+
+/* Every cell on this page was formatted in Python, by the same code the other
+   two frontends format theirs with. These three exist for the one figure
+   Python could not have known: the footer over a table the reader has
+   filtered. They have to agree with it to the last digit, which is the whole
+   reason pyFixed is here rather than toFixed.
+
+   Python rounds half to even; JavaScript rounds half away from zero. The
+   difference shows on any exact tie -- 1,250 tokens is "1.2k" in the terminal
+   and "1.3k" through toFixed -- so a total recomputed here would disagree
+   with the same total printed anywhere else. toFixed(20) is exact enough to
+   recognise a tie (a double that is not exactly x.x5 has a non-zero digit
+   somewhere in those twenty), and the rest is long division by hand. */
+function pyFixed(value, places) {
+  const exact = Math.abs(value).toFixed(20);
+  const point = exact.indexOf(".");
+  const digits = (exact.slice(0, point) + exact.slice(point + 1)).split("");
+  const cut = point + places;
+  const kept = digits.slice(0, cut);
+  const rest = digits.slice(cut).join("");
+  const half = "5".padEnd(rest.length, "0");
+  if (rest > half || (rest === half && Number(kept[cut - 1]) % 2 === 1)) {
+    let i = cut - 1;
+    for (; i >= 0 && kept[i] === "9"; i--) kept[i] = "0";
+    if (i < 0) kept.unshift("1");
+    else kept[i] = String(Number(kept[i]) + 1);
+  }
+  const text = kept.join("");
+  const whole = text.slice(0, text.length - places) || "0";
+  return places ? whole + "." + text.slice(text.length - places) : whole;
+}
+
+const grouped = whole => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+// ledger.fmt_tokens
+const fmtTokens = n => n < 1000 ? String(n)
+  : n < 1e6 ? pyFixed(n / 1e3, 1) + "k" : pyFixed(n / 1e6, 1) + "M";
+
+// ledger.fmt_usd: what we can price, and a flag when the real number is higher
+const fmtUsd = (cost, known) => {
+  const [whole, frac] = pyFixed(cost, 2).split(".");
+  const text = "$" + grouped(whole) + "." + frac;
+  return known ? text : (cost ? text + "+?" : "?");
+};
+
+// --------------------------------------------------------------------------
+// drawing
+// --------------------------------------------------------------------------
+
+// views.caps: capitalise each word and leave the rest of it alone, so a panel
+// title reads the way tui.panel writes one.
+const caps = s => s.split(" ")
+  .map(w => w ? w[0].toUpperCase() + w.slice(1) : w).join(" ");
+
+const el = (tag, cls, text) => {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined && text !== null) node.textContent = text;
+  return node;
+};
+
+const UNKNOWN = "Unknown";
+
+/* tui.put_label: a row with no prompt is one name and one explanation, and
+   the explanation shouldn't carry the same weight as the prompts it sits
+   among. The full text goes on the node too -- a browser can show what a
+   truncated cell is hiding, which a terminal cannot. */
+function putLabel(node, text) {
+  if (text.startsWith(UNKNOWN + " (")) {
+    node.appendChild(document.createTextNode(UNKNOWN));
+    node.appendChild(el("span", "aside", text.slice(UNKNOWN.length)));
+  } else {
+    node.textContent = text;
+  }
+  node.title = text;
+  return node;
+}
+
+function panel(title) {
+  const box = el("section", "panel");
+  if (title) box.appendChild(el("h2", "title", caps(title)));
+  return box;
+}
+
+/* One row of a panel: cells laid out left to right, the figures hard against
+   the right edge, the way views.figure_slots places them. */
+function figureRow(cells) {
+  const row = el("div", "row");
+  for (const [kind, text] of cells) {
+    if (kind === "bar") {
+      row.appendChild(el("span", "edge", "▕"));
+      const bar = el("div", "bar");
+      bar.appendChild(el("div", "track"));
+      const fill = el("div", "fill");
+      fill.style.width = (text * 100).toFixed(2) + "%";
+      bar.appendChild(fill);
+      row.appendChild(bar);
+      row.appendChild(el("span", "edge", "▏"));
+    } else if (kind === "label") {
+      row.appendChild(putLabel(el("div", "grow"), text));
+    } else {
+      row.appendChild(el("div", kind, text));
+    }
+  }
+  return row;
+}
+
+// --------------------------------------------------------------------------
+// state
+// --------------------------------------------------------------------------
+
+const slug = label => label.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+const SLUGS = DATA.tabs.map(t => slug(t.label));
+
+const state = {
+  tab: 0,
+  queries: DATA.tabs.map(() => ""),
+  sorts: DATA.tabs.map(() => null),
+};
+
+const fromHash = () => {
+  const found = SLUGS.indexOf((location.hash || "").replace(/^#/, ""));
+  return found < 0 ? 0 : found;
+};
+
+// --------------------------------------------------------------------------
+// chrome
+// --------------------------------------------------------------------------
+
+function drawMast() {
+  const mast = document.getElementById("mast");
+  mast.textContent = "";
+  mast.appendChild(el("span", "logo", DATA.logo));
+  mast.appendChild(el("span", "name", "  Claude Token Cost"));
+  if (DATA.version) mast.appendChild(el("span", "version", " " + DATA.version));
+  mast.appendChild(el("span", "dot", "  ·  "));
+  mast.appendChild(el("span", "project", DATA.project));
+}
+
+function drawTabs() {
+  const bar = document.getElementById("tabs");
+  bar.textContent = "";
+  DATA.tabs.forEach((tab, i) => {
+    const button = el("button", "tab", tab.label);
+    button.type = "button";
+    if (i === state.tab) button.setAttribute("aria-current", "true");
+    button.addEventListener("click", () => go(i));
+    bar.appendChild(button);
+  });
+}
+
+function drawLegend() {
+  const foot = document.getElementById("legend");
+  foot.textContent = "";
+  const keys = el("span");
+  const parts = [["Click or ←/→", "Tabs"], ["1-6", "Jump"],
+                 ["↑/↓", "Scroll"], ["/", "Search"],
+                 ["Esc", "Clear"], ["g/G", "Top/Bottom"]];
+  parts.forEach(([key, what], i) => {
+    if (i) keys.appendChild(document.createTextNode(" · "));
+    keys.appendChild(el("b", null, key));
+    keys.appendChild(document.createTextNode(" " + what));
+  });
+  foot.appendChild(keys);
+  foot.appendChild(el("span", null,
+    "Generated " + DATA.generated + " · rebuild with /token-cost html"));
+}
+
+// --------------------------------------------------------------------------
+// the overview
+// --------------------------------------------------------------------------
+
+function drawOverview(body) {
+  const over = DATA.overview;
+
+  const grid = el("div", "grid");
+  const project = panel("Project");
+  const facts = el("div", "facts");
+  facts.appendChild(el("div", "lead", DATA.facts[0]));
+  facts.appendChild(el("div", "span", DATA.facts[1]));
+  facts.appendChild(el("div", null, DATA.facts[2]));
+  facts.appendChild(el("div", "money", DATA.facts[3]));
+  project.appendChild(facts);
+  grid.appendChild(project);
+
+  const models = panel("Models");
+  for (const model of over.models) {
+    const row = figureRow([
+      ["name", model.name],
+      ["tally", model.tasks + " Tasks"],
+      ["grow", ""],
+      ["tokens", model.tokens + " Tokens"],
+      ["cost", model.cost],
+    ]);
+    row.className = "row tight";
+    models.appendChild(row);
+  }
+  grid.appendChild(models);
+  body.appendChild(grid);
+
+  if (over.days.length) {
+    const chart = panel("Cost per day");
+    for (const day of over.days) {
+      chart.appendChild(figureRow([
+        ["when", day.label],
+        ["bar", day.share],
+        ["tokens", day.tokens],
+        ["cost", day.cost],
+      ]));
+    }
+    body.appendChild(chart);
+  }
+
+  if (over.tasks.length) {
+    const costly = panel("Most expensive tasks");
+    for (const task of over.tasks) {
+      costly.appendChild(figureRow([
+        ["label", task.label],
+        ["tokens", task.tokens],
+        ["cost", task.cost],
+      ]));
+    }
+    body.appendChild(costly);
+  }
+
+  body.appendChild(el("p", "note",
+    "Estimated from published API rates; subscription plans are not billed"
+    + " per token."));
+}
+
+// --------------------------------------------------------------------------
+// tables
+// --------------------------------------------------------------------------
+
+/* Which rows a table shows, in the order it shows them: Python's order until
+   somebody filters or sorts it, and neither of those is a question Python
+   could have answered ahead of time. */
+function ordered(view, query, sort) {
+  let rows = view.rows.map((_, i) => i);
+  if (query && view.search >= 0) {
+    const needle = query.toLowerCase();
+    rows = rows.filter(i => view.rows[i][view.search].toLowerCase()
+      .includes(needle));
+  }
+  if (sort) {
+    const {col, dir} = sort;
+    const numeric = view.columns[col].kind !== "text";
+    const key = i => numeric ? view.figures[i][col] : view.rows[i][col];
+    rows = rows.slice().sort((a, b) => {
+      const x = key(a), y = key(b);
+      const cmp = numeric ? (x - y) : String(x).localeCompare(String(y));
+      return dir === "asc" ? cmp : -cmp;
+    });
+  }
+  return rows;
+}
+
+/* The footer over exactly the rows on show. Python's while the table is whole
+   -- it is the same TOTAL the other two frontends print, task counts and all
+   -- and recomputed here only once a filter has taken rows out from under it. */
+function footer(view, rows, filtered) {
+  if (!filtered) return view.total;
+  const unpriced = new Set(view.unpriced);
+  const cells = view.columns.map((col, i) => {
+    if (col.kind === "text") return "";
+    let sum = 0, peak = 0, known = true;
+    for (const r of rows) {
+      const value = view.figures[r][i] || 0;
+      sum += value;
+      if (value > peak) peak = value;
+      if (unpriced.has(r)) known = false;
+    }
+    if (col.kind === "peak") return fmtTokens(peak);
+    if (col.kind === "count") return String(sum);
+    if (col.kind === "usd") return fmtUsd(sum, known);
+    return fmtTokens(sum);
+  });
+  cells[0] = "TOTAL";
+  return cells;
+}
+
+function drawTable(view, rows, filtered, sort, onSort) {
+  const table = el("table");
+  const headRow = el("tr");
+  view.columns.forEach((col, i) => {
+    const cell = el("th", col.align === ">" ? "num" : null, col.header);
+    if (sort && sort.col === i) cell.dataset.dir = sort.dir;
+    if (onSort) {
+      cell.tabIndex = 0;
+      cell.title = "Sort by " + col.header;
+      cell.addEventListener("click", () => onSort(i));
+      cell.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSort(i);
+        }
+      });
+    }
+    headRow.appendChild(cell);
+  });
+  const head = el("thead");
+  head.appendChild(headRow);
+  table.appendChild(head);
+
+  const body = el("tbody");
+  for (const r of rows) {
+    const tr = el("tr");
+    view.columns.forEach((col, i) => {
+      const classes = [];
+      if (col.align === ">") classes.push("num");
+      if (i === view.search) classes.push("grow");
+      const cell = el("td", classes.join(" ") || null);
+      if (i === view.search) putLabel(cell, view.rows[r][i]);
+      else cell.textContent = view.rows[r][i];
+      tr.appendChild(cell);
+    });
+    body.appendChild(tr);
+  }
+  table.appendChild(body);
+
+  const footRow = el("tr");
+  footer(view, rows, filtered).forEach((text, i) => {
+    footRow.appendChild(el("td",
+      view.columns[i].align === ">" ? "num" : null, text));
+  });
+  const foot = el("tfoot");
+  foot.appendChild(footRow);
+  table.appendChild(foot);
+  return table;
+}
+
+/* tui.draw_sessions_summary: how many, how much each carries on average, and
+   the two outliers that recency ordering buries. */
+function drawSessionsSummary(summary) {
+  const box = panel("Sessions");
+  const top = el("div", "row");
+  top.appendChild(el("div", "lead", summary.count));
+  top.appendChild(el("div", "grow", ""));
+  top.appendChild(el("div", "muted", summary.rate));
+  top.appendChild(el("div", "cost", summary.average));
+  box.appendChild(top);
+  for (const row of summary.rows) {
+    box.appendChild(figureRow([
+      ["tag", row.tag],
+      ["at", row.when],
+      ["label", row.label],
+      ["cost", row.figure],
+    ]));
+  }
+  return box;
+}
+
+function drawTab(body, index) {
+  const tab = DATA.tabs[index];
+  if (tab.mode === "overview") return drawOverview(body);
+
+  if (tab.empty) {
+    const box = panel(tab.label);
+    box.appendChild(el("div", "empty", caps(tab.empty)));
+    body.appendChild(box);
+    return;
+  }
+
+  if (tab.summary) {
+    const box = panel(tab.summaryTitle);
+    box.appendChild(drawTable(tab.summary,
+      tab.summary.rows.map((_, i) => i), false, null, null));
+    body.appendChild(box);
+  } else if (tab.sessions) {
+    body.appendChild(drawSessionsSummary(tab.sessions));
+  }
+
+  const view = tab.main;
+  const box = panel(tab.mainTitle);
+  const title = box.querySelector(".title");
+  body.appendChild(box);
+  const holder = el("div");
+
+  const paint = () => {
+    const query = state.queries[index];
+    const sort = state.sorts[index];
+    const rows = ordered(view, query, sort);
+    const filtered = Boolean(query) && view.search >= 0;
+    title.textContent = caps(filtered
+      ? rows.length + " of " + view.count + " " + tab.noun
+      : tab.mainTitle);
+    holder.textContent = "";
+    if (filtered && !rows.length) {
+      holder.appendChild(el("div", "empty",
+        "No " + tab.noun.toLowerCase() + " match “" + query + "”."));
+      return;
+    }
+    holder.appendChild(drawTable(view, rows, filtered, sort, column => {
+      const now = state.sorts[index];
+      // Down, then up, then back to the order the ledger came in.
+      state.sorts[index] = (!now || now.col !== column)
+        ? {col: column, dir: "desc"}
+        : now.dir === "desc" ? {col: column, dir: "asc"} : null;
+      paint();
+    }));
+  };
+
+  if (tab.searchable) {
+    const field = el("div", "search");
+    const input = el("input");
+    input.type = "text";
+    input.value = state.queries[index];
+    input.placeholder = "Press / or click, then type to filter "
+      + tab.noun.toLowerCase();
+    input.setAttribute("aria-label", "Filter " + tab.noun.toLowerCase());
+    input.addEventListener("input", () => {
+      state.queries[index] = input.value;
+      paint();
+    });
+    field.appendChild(input);
+    const hint = el("span", "hint", "Esc clears");
+    hint.addEventListener("click", () => {
+      input.value = "";
+      state.queries[index] = "";
+      paint();
+      input.focus();
+    });
+    field.appendChild(hint);
+    box.appendChild(field);
+  }
+
+  box.appendChild(holder);
+  paint();
+
+  if (view.hint) body.appendChild(el("p", "note", view.hint));
+}
+
+// --------------------------------------------------------------------------
+// the loop
+// --------------------------------------------------------------------------
+
+function draw() {
+  drawTabs();
+  const body = document.getElementById("body");
+  body.textContent = "";
+  drawTab(body, state.tab);
+}
+
+function go(index) {
+  state.tab = (index + DATA.tabs.length) % DATA.tabs.length;
+  if (location.hash !== "#" + SLUGS[state.tab]) {
+    history.replaceState(null, "", "#" + SLUGS[state.tab]);
+  }
+  draw();
+  window.scrollTo({top: 0});
+}
+
+const searchField = () => document.querySelector("#body .search input");
+
+document.addEventListener("keydown", event => {
+  if (event.target instanceof HTMLInputElement) {
+    if (event.key !== "Escape") return;
+    if (event.target.value) {
+      state.queries[state.tab] = "";
+      draw();
+      const again = searchField();
+      if (again) again.focus();
+    } else {
+      event.target.blur();
+    }
+    return;
+  }
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.key === "ArrowRight") go(state.tab + 1);
+  else if (event.key === "ArrowLeft") go(state.tab - 1);
+  else if (event.key >= "1" && event.key <= "6") go(Number(event.key) - 1);
+  else if (event.key === "/") {
+    const field = searchField();
+    if (field) { event.preventDefault(); field.focus(); field.select(); }
+  } else if (event.key === "Escape") {
+    if (state.queries[state.tab]) { state.queries[state.tab] = ""; draw(); }
+  } else if (event.key === "g") window.scrollTo({top: 0});
+  else if (event.key === "G") window.scrollTo({top: document.body.scrollHeight});
+});
+
+window.addEventListener("hashchange", () => {
+  const next = fromHash();
+  if (next !== state.tab) { state.tab = next; draw(); }
+});
+
+// A table's header sticks under the chrome rather than under the top of the
+// window, so the tab bar never has a row of figures sliding behind it.
+const sticky = document.querySelector(".sticky");
+const measure = () => document.documentElement.style
+  .setProperty("--chrome-h", sticky.offsetHeight + "px");
+if (window.ResizeObserver) new ResizeObserver(measure).observe(sticky);
+window.addEventListener("resize", measure);
+
+drawMast();
+drawLegend();
+state.tab = fromHash();
+draw();
+measure();
+</script>
+</body>
+</html>

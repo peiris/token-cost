@@ -34,6 +34,14 @@ PERIODS = {"today": 1, "day": 1, "week": 7, "month": 30}
 
 MODES = ("days", "tasks", "sessions", "models")
 
+# Arguments that ask for a frontend rather than a table in the chat: a
+# terminal window of its own, or a page in the browser. parse_args ignores
+# them -- they say where a report goes, not what is in it -- and all three
+# frontends read them from here, so none of them can know a word the others
+# don't.
+UI_WORDS = ("ui", "tui")
+HTML_WORDS = ("html", "web", "browser", "page")
+
 # The tabs both frontends present, in order: (label, view mode, period). The
 # UI makes them navigable; the report prints the same row as a signpost with
 # Overview marked. They live here so the two can never drift apart. Overview
@@ -127,6 +135,22 @@ NUMERIC_COLS = [
      lambda bs: ledger.fmt_usd(sum(b["cost"] for b in bs),
                                all(b["cost_known"] for b in bs))),
 ]
+
+# The same figures unformatted, keyed by the column that shows them, and how
+# a footer over one is made. A cell's text is the column's own business
+# above; this is that figure before it became text, for a frontend that has
+# to re-total a table it has filtered or sort by a column rather than read
+# down it -- neither of which can be done to "1.2M". Columns absent from
+# here carry prose, and sort as the text they show.
+FIGURE_VALUES = {
+    "TASKS": (lambda b: b["tasks"], "count"),
+    "INPUT": (lambda b: b["input"], "tokens"),
+    "OUTPUT": (lambda b: b["output"], "tokens"),
+    "CACHE R": (lambda b: b["cache_read"], "tokens"),
+    "CACHE W": (cache_write, "tokens"),
+    "CTX": (lambda b: b["ctx"], "peak"),
+    "EST. $": (lambda b: b["cost"], "usd"),
+}
 
 # Which columns a narrow terminal gives up first, and in what order. Cache
 # writes are the smallest number on the row and input is usually two digits

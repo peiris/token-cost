@@ -62,7 +62,7 @@ def understood(args: list[str]) -> bool:
     the report can act on. Anything else belongs to the model.
     """
     import views
-    words = set(views.PERIODS) | {"ui", "tui"}
+    words = set(views.PERIODS) | set(views.UI_WORDS) | set(views.HTML_WORDS)
     return all(a.lower() in words
                or a.lower().startswith(("task", "session", "day", "date"))
                for a in args)

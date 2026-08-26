@@ -2,7 +2,7 @@
 """Render the project's token ledger for Claude Code.
 
 Usage: report.py [--cwd PATH] [--budget N] [--width N]
-                 [days|tasks|sessions|ui] [today|week|month]
+                 [days|tasks|sessions|ui|html] [today|week|month]
 
 What a view contains lives in views.py; this file only knows how to print the
 chat overview and its explicit plain-text tables. `--budget` caps how many
@@ -717,9 +717,15 @@ def main() -> int:
     # lands in the same pane and wraps in the same way when it overruns.
     width = report_width(width)
 
-    if any(a.lower() in ("ui", "tui") for a in args):
+    if any(a.lower() in views.UI_WORDS for a in args):
         print(launch_block(cwd, width))
         return 0
+
+    # The page in the browser is every tab at once, so a period asked for
+    # beside it has nothing left to narrow -- each one is already a tab of
+    # its own. Lifted out of args here, and the rest read as usual.
+    wants_html = any(a.lower() in views.HTML_WORDS for a in args)
+    args = [a for a in args if a.lower() not in views.HTML_WORDS]
 
     # No arguments means the same Overview the full-screen UI opens on.
     # Explicit `days` retains the compact row-per-day table for people who
@@ -770,6 +776,14 @@ def main() -> int:
             f" it. Your project's usage is on the machine where you run"
             f" Claude Code yourself.")
         print()
+
+    if wants_html:
+        # Imported here rather than at the top: it reads a template off disk
+        # and builds every tab at once, and nothing else this command does
+        # needs either.
+        import html_report
+        print(html_report.launch_block(cwd, rows, project, width))
+        return 0
 
     if period:
         narrowed, scope = views.in_window(rows, period)
