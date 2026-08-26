@@ -71,8 +71,8 @@ def ragged_frames(drawn: list[str], width: int, where: str) -> list[str]:
     Inside a full-width frame every line has to reach it: one that stops
     early lost its edge, which reads as a broken box even though nothing
     wrapped. The paired Project/Models row is exempt -- two frames of their
-    own widths with a gutter between them, and the shorter one runs out
-    under the taller.
+    own widths with a gutter between them, so no single border runs the
+    width of the page.
     """
     ragged, inside = [], False
     for i, line in enumerate(drawn, 1):
@@ -169,12 +169,6 @@ def widths_ok(rows: list[dict], project: str) -> list[str]:
 UI_ONLY = ("Click or ", "Click or Left", "Press / or click", "Filter:",
            "Search:")
 
-# A paired row whose right-hand panel is blank filler. The two overview
-# panels are different heights in the two frontends -- the UI's Models box
-# stops at whatever the terminal had room for -- so which of them is padding
-# on a given line legitimately differs.
-BLANK_RIGHT = re.compile(r"^[╰│].*[╯│] {2}│ +│$")
-
 
 # The rule under the masthead and the tab bar beneath it. The UI has a
 # keyboard and five other tabs to reach with it; a printed report has
@@ -196,8 +190,7 @@ def ui_lines(frame: list[str]) -> list[str]:
             nav = True
             continue
         if (not text or any(mark in text for mark in UI_ONLY)
-                or text.startswith(("│  ╭", "│  ╰"))
-                or BLANK_RIGHT.match(text)):
+                or text.startswith(("│  ╭", "│  ╰"))):
             continue
         kept.append(text)
     return kept

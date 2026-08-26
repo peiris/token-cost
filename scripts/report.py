@@ -179,18 +179,28 @@ def frame(title: str, rows: list[str], width: int) -> list[str]:
     return lines
 
 
-def side_by_side(left: list[str], right: list[str]) -> list[str]:
-    """Two frames on one row, the shorter running out under the taller.
+def stretch(box: list[str], height: int) -> list[str]:
+    """A drawn frame grown to `height` rows, the air going under its rows.
 
-    The left column keeps its width once it closes, because the frame beside
-    it still has to start in the same place. Past the right-hand frame there
-    is nothing to hold a column open for, so the line ends there rather than
-    trailing whitespace off the edge of the panel.
+    The blank line the frame keeps below its content is what the box grows
+    by, so its rows stay where they were and its edges stay its own.
+    """
+    return (box if len(box) >= height
+            else box[:-1] + [box[1]] * (height - len(box)) + box[-1:])
+
+
+def side_by_side(left: list[str], right: list[str]) -> list[str]:
+    """Two frames on one row, closing on the same line.
+
+    A box beside a taller one grows to meet it rather than stopping short:
+    the pair reads as one band across the page instead of a step down the
+    middle of it. Which of the two is the taller depends on the ledger --
+    four facts against however many models it holds -- so neither can be
+    the one that sets the height.
     """
     height = max(len(left), len(right))
-    left = left + [" " * len(left[0])] * (height - len(left))
-    right = right + [""] * (height - len(right))
-    return [(a + " " * GAP + b).rstrip() for a, b in zip(left, right)]
+    return [a + " " * GAP + b
+            for a, b in zip(stretch(left, height), stretch(right, height))]
 
 
 def chrome(width: int, project: str) -> list[str]:
@@ -398,8 +408,7 @@ def overview(rows: list[dict], project: str, width: int = 0) -> str:
         lines += frame("Project", project_rows, stats_w)
         lines += frame("Models", built, models_w)
     else:
-        # Each box keeps its own height and they hang from the same line, the
-        # way two panels of different depths sit beside each other in the UI.
+        # Both boxes close on the same line, the way the UI's pair does.
         lines += side_by_side(frame("Project", project_rows, stats_w),
                               frame("Models", built, models_w))
 

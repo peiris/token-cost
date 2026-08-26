@@ -630,7 +630,13 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
     # footer row excluded. A box drawn past the last line doesn't scroll --
     # it loses its bottom edge, and the footer lands inside it.
     stats_h = min(box_for(4), max(0, sc.h - y - 1))   # the four facts below
-    box_h = max(box_for(min(len(models), 5)), stats_h if not stacked else 0)
+    box_h = box_for(min(len(models), 5))
+    if not stacked:
+        # Beside each other the two boxes close on the same line: whichever
+        # is shorter grows into the other's depth, rather than leaving a
+        # step across the middle of the tab. Which one that is depends on
+        # the ledger, so both are sized from the taller of the pair.
+        stats_h = box_h = min(max(stats_h, box_h), max(0, sc.h - y - 1))
 
     facts = ((f"{data.tasks:,} Tasks", accent | curses.A_BOLD),
              (data.span, muted),
