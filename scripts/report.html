@@ -20,7 +20,6 @@
   color-scheme:dark;
   --bg:#121212;
   --text:#cfcfcf;
-  --edge:#3a3330;
   --muted:#8a8a8a;      /* xterm 245 */
   --accent:#ff875f;     /* xterm 209, tui.py's warm coral */
   --band:#3a3a3a;       /* xterm 237, the hovered row */
@@ -40,8 +39,8 @@ body{
 
 /* ---- chrome: the masthead and the tab bar, sharing a rule ---- */
 .sticky{position:sticky;top:0;z-index:20;background:var(--bg);padding:1.2em 0 1em}
-.chrome{border:1px solid var(--edge);border-radius:10px}
-.mast{padding:1.15em var(--pad);text-align:center;border-bottom:1px solid var(--edge)}
+.chrome{border:1px solid var(--accent);border-radius:10px}
+.mast{padding:1.15em var(--pad);text-align:center;border-bottom:1px solid var(--accent)}
 .mast .logo{color:var(--accent);letter-spacing:.05em}
 .mast .name{font-weight:700;color:var(--accent)}
 .mast .version,.mast .dot{color:var(--muted)}
@@ -61,7 +60,7 @@ body{
 
 /* ---- panels: tui.panel, with its title set into the top edge ---- */
 .panel{
-  position:relative;border:1px solid var(--edge);border-radius:10px;
+  position:relative;border:1px solid var(--accent);border-radius:10px;
   padding:1.15em var(--pad);margin:1.3em 0 0;
 }
 .panel > .title{
@@ -106,7 +105,7 @@ body{
 /* ---- tables ---- */
 .search{
   display:flex;align-items:baseline;gap:0 2ch;
-  border:1px solid var(--edge);border-radius:8px;
+  border:1px solid var(--muted);border-radius:8px;
   padding:.35em var(--pad);margin:.2em 0 1em;
 }
 .search:focus-within{border-color:var(--accent)}
