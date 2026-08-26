@@ -167,7 +167,7 @@ def widths_ok(rows: list[dict], project: str) -> list[str]:
 
 # What the UI has that a printed page can't: its own footer, and the search
 # field with its box. Everything else on screen, the report owes you.
-UI_ONLY = ("Click or ", "Click or Left", "Press / or click", "Filter:",
+UI_ONLY = ("Click or ", "Click or Left", "Press / or click",
            "Type a name to filter")
 
 
