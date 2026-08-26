@@ -405,6 +405,14 @@ answering it with a table would be worse than being slow. Anything it doesn't
 recognise — an unknown argument, an unreadable ledger — falls through
 untouched, and the slash command answers it the old way.
 
+Claude Code announces a stopped turn in amber, re-opening the colour at the
+start of every line, so a report handed back that way inherits it and ends up
+looking like a warning about itself. On a terminal the page closes the colour
+again per line — a zero-width escape, so nothing moves — and reads as a page.
+Where the output isn't going to a terminal the escape is left out, since a
+frontend that renders Claude Code some other way might print it rather than
+act on it. The one line Claude Code writes above the page is its own.
+
 `TOKEN_COST_NO_INTERCEPT=1` always takes that older route.
 
 It is still worth keeping cheap, because it is the fallback:

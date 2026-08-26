@@ -28,6 +28,10 @@ from pathlib import Path
 # and the slash command's are the same page.
 BUDGET = 28000
 
+# ESC[0m. Claude Code colours a stop message amber; this closes it again so
+# the page reads as a page. Zero width, so nothing it prefixes moves.
+PLAIN = "\x1b[0m"
+
 # Both ways Claude Code writes this command's name: bare, and qualified by
 # the plugin it came from.
 NAMES = ("/token-cost:token-cost", "/token-cost")
@@ -80,6 +84,18 @@ def render(cwd: str, args: list[str]) -> str:
     return buffer.getvalue().rstrip("\n")
 
 
+def terminal() -> bool:
+    """True when this session is drawn on a real terminal.
+
+    Only there is PLAIN worth sending: a terminal reads the escape, while a
+    frontend that renders Claude Code's output some other way might print it.
+    report.py already looks for the terminal the page is about to land on --
+    an ancestor of ours owns it, or nothing does.
+    """
+    import report
+    return report.ancestor_columns() > 0
+
+
 def main() -> int:
     if os.environ.get("TOKEN_COST_NO_INTERCEPT"):
         return 0
@@ -101,8 +117,14 @@ def main() -> int:
 
     if not page:
         return 0
-    # Claude Code prefixes this with a line of its own, so start on ours --
-    # a frame that shares a line with someone else's text is a broken frame.
+    # Claude Code paints a stop message amber and re-opens that colour at
+    # the start of every line, so a report inherits it and ends up looking
+    # like a warning about itself. Our text is emitted verbatim inside each
+    # line, so each line can close the colour again. The leading newline is
+    # for the line Claude Code prints above us: a frame sharing a row with
+    # someone else's text is a broken frame.
+    if terminal():
+        page = "\n".join(PLAIN + line for line in page.split("\n"))
     print(json.dumps({"continue": False, "stopReason": "\n" + page}))
     return 0
 
