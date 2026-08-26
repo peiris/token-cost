@@ -5,7 +5,7 @@ Asking someone to run `ln -s` before they can use a feature is a setup
 ritual, not an install. This runs as a SessionStart hook so the command
 simply exists.
 
-The installed file is a copy of bin/token-cost, not a symlink into it. A
+The installed file is a copy of scripts/token-cost, not a symlink into it. A
 symlink would point inside a version directory that the next plugin update
 replaces and eventually prunes, leaving a dangling command; a copy keeps
 working no matter what happens to the cache, because it resolves the newest
@@ -36,7 +36,7 @@ def target_dir() -> Path:
 
 
 def source() -> Path:
-    return Path(__file__).resolve().parent.parent / "bin" / "token-cost"
+    return Path(__file__).resolve().parent / "token-cost"
 
 
 def shim_text(launcher: str) -> str:

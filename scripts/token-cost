@@ -3,7 +3,7 @@
 
 Symlink this into your PATH once:
 
-    ln -s <plugin>/bin/token-cost ~/.local/bin/token-cost
+    ln -s <plugin>/scripts/token-cost ~/.local/bin/token-cost
 
 It deliberately does not run the tui.py sitting next to it. Claude Code caches
 each plugin version in its own directory, so the copy beside this file is

@@ -555,7 +555,7 @@ it prints the one command to run instead of doing nothing.
 <details>
 <summary>What gets installed, and where</summary>
 
-A copy of [`bin/token-cost`](bin/token-cost) is written to `~/.local/bin`
+A copy of [`scripts/token-cost`](scripts/token-cost) is written to `~/.local/bin`
 (or `$XDG_BIN_HOME`) by a `SessionStart` hook, and again by `/token-cost`
 itself. Nothing can run at the moment you install a plugin — Claude Code has
 no install-time hook, and a plugin's hooks don't exist until it loads — so
