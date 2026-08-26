@@ -38,6 +38,7 @@ PLUGIN_ROOT = HERE.parent
 # attached to, and that process is one of our own ancestors -- so walk up to
 # it and ask its TTY.
 CHAT_RESERVE = 10    # message indent, the code block's padding, autowrap slack
+CHAT_ROWS = 100      # rows a table keeps when the whole list won't fit
 MIN_WIDTH, MAX_WIDTH = 44, 100
 FALLBACK_WIDTH = 74  # a plain 80-column terminal, less that same reserve
 
@@ -432,11 +433,10 @@ def overview(rows: list[dict], project: str, width: int = 0) -> str:
     return "\n".join(lines)
 
 
-def boxed(title: str, view, width: int, rows: bool = True) -> list[str]:
+def boxed(title: str, view, width: int, limit: int = 0) -> list[str]:
     """A view's table inside a titled frame, the way the UI boxes one."""
     inner = width - 2 - 2 * PAD_X
-    drawn = render(view, inner) if rows else summary_only(view, inner)
-    return frame(title, drawn.split("\n"), width)
+    return frame(title, render(view, inner, limit).split("\n"), width)
 
 
 def session_rows(view, width: int) -> list[str]:
@@ -481,9 +481,10 @@ def tab_report(rows: list[dict], project: str, mode: str, period: str | None,
     two things to show and the same shape to show them in -- so this is that
     tab, boxed the same way, sized to the pane instead of the terminal.
 
-    `budget` is the ceiling on what a conversation can carry. Over it, the
-    table keeps its header and its total and loses its rows, which is the
-    one part of the tab that has somewhere else to be read.
+    `budget` is the ceiling on what a conversation can carry. Over it the
+    table stops after CHAT_ROWS rows rather than losing all of them: the
+    first hundred are the ones being asked for, and the table says on its
+    last row how many it left behind.
     """
     # A tab is a mode and a period, so a narrowing the UI doesn't offer --
     # `/token-cost tasks week` -- still gets the two views a tab has.
@@ -501,11 +502,24 @@ def tab_report(rows: list[dict], project: str, mode: str, period: str | None,
     lines.append("")
     body = boxed(built.main_title, built.main, width)
     if budget and len("\n".join(lines + body)) > budget:
-        lines += boxed(built.main_title, built.main, width, rows=False)
-        lines.append("")
-        lines += budget_notice(built.main, len("\n".join(body)), budget,
-                               width).split("\n")
-        return "\n".join(lines)
+        full = len("\n".join(body))
+
+        def page(limit: int) -> list[str]:
+            """The tab with its table cut to `limit` rows, and why."""
+            return (lines + boxed(built.main_title, built.main, width, limit)
+                    + [""]
+                    + budget_notice(built.main, full, budget, width,
+                                    limit).split("\n"))
+
+        # A hundred rows fit any pane this prints into, but --budget is a
+        # ceiling and not a suggestion: halve the cap until the page it
+        # produces is one the conversation can actually carry.
+        limit = CHAT_ROWS
+        out = page(limit)
+        while limit > 1 and len("\n".join(out)) > budget:
+            limit //= 2
+            out = page(limit)
+        return "\n".join(out)
     lines += body
 
     lines.append("")
@@ -515,7 +529,7 @@ def tab_report(rows: list[dict], project: str, mode: str, period: str | None,
     return "\n".join(lines)
 
 
-def render(view, width: int = 0) -> str:
+def render(view, width: int = 0, limit: int = 0) -> str:
     """A view's table, narrowed to `width` when it doesn't already fit.
 
     The same fitting the UI does, from the same place: the prose column
@@ -523,6 +537,10 @@ def render(view, width: int = 0) -> str:
     the header still names the ones that survived. Rows are never dropped to
     make a table fit -- a table you can see is short is better than one that
     quietly isn't all there.
+
+    `limit` is the one thing that does drop rows, and only because the pane
+    they are printed into has a ceiling of its own. A capped table says so
+    on its last row, so it is never mistaken for the whole list.
 
     It fills the width it is given, the way the UI's tables do, because it
     is drawn where the UI draws its own: inside a frame, with an edge for
@@ -539,36 +557,30 @@ def render(view, width: int = 0) -> str:
             for cell, w, a in zip(cells, widths, aligns)
         ).rstrip()
 
+    kept = min(limit, table.count) if limit else table.count
     rows = ([table.cells[header][i] for header in headers]
-            for i in range(table.count))
-    rule = "─" * (sum(widths) + views.GAP * (len(widths) - 1))
-    return "\n".join([line(headers)] + [line(row) for row in rows]
-                     + [rule, line(total)])
-
-
-def summary_only(view, width: int = 0) -> str:
-    """Headers and footer, for when the rows themselves cannot be printed.
-
-    The header row comes along because a line of numbers with nothing naming
-    the columns is a puzzle, not a summary.
-    """
-    lines = render(view, width).split("\n")
-    return "\n".join([lines[0], lines[-2], lines[-1]])
+            for i in range(kept))
+    span = sum(widths) + views.GAP * (len(widths) - 1)
+    note = [] if kept == table.count else [""] + wrap(
+        f"Showing {kept:,} {view.unit} out of {table.count:,}."
+        " Run /token-cost html to get full report.", span)
+    return "\n".join([line(headers)] + [line(row) for row in rows] + note
+                     + ["─" * span, line(total)])
 
 
 def budget_notice(view, size: int, budget: int, width: int,
-                  unit: str = "rows", subject: str = "table") -> str:
-    """Why a long chat result isn't here, and where to read it instead.
+                  shown: int) -> str:
+    """Why the table above stops where it does, and where the rest is.
 
     Inline shell output reaches the conversation through the Bash tool, which
     carries about 30k characters; past that the model is handed a file path
     and a preview rather than a table. Printing 90k anyway doesn't produce a
-    long table, it produces no table. So say so, keep the totals -- which are
-    the part that still fits -- and point at the UI, which has no ceiling.
+    long table, it produces no table. So the table carries what it can, and
+    this says what that cost and points at the UI, which has no ceiling.
     """
-    said = wrap(f"{len(view.buckets):,} {unit} is {size:,} characters — past"
-                f" the {budget:,} a conversation can carry, so the {subject}"
-                " would arrive as a file preview rather than rows.", width)
+    said = wrap(f"{len(view.buckets):,} {view.unit} is {size:,} characters —"
+                f" past the {budget:,} a conversation can carry, so the table"
+                f" above stops at {shown:,}.", width)
     return "\n".join(said + [""] + pairs([
         ("token-cost", "the full list, scrollable"),
         ("/token-cost tasks week", "the last 7 days, in chat"),

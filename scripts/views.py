@@ -25,9 +25,11 @@ import ledger  # noqa: E402
 TASK_WIDTH = 52      # room for a prompt to be recognisable, not complete
 TITLE_WIDTH = 34
 
-# The only thing that ever narrows a report. Every view shows every row it
-# has: a table that quietly drops rows is worse than a long one, because you
-# cannot tell from looking at it that anything is missing.
+# The only thing that ever narrows a view. Every view holds every row it has:
+# a table that quietly drops rows is worse than a long one, because you
+# cannot tell from looking at it that anything is missing. A frontend printing
+# into a pane with a ceiling may stop short of the end, and says so where it
+# stops.
 PERIODS = {"today": 1, "day": 1, "week": 7, "month": 30}
 
 MODES = ("days", "tasks", "sessions", "models")
@@ -295,12 +297,14 @@ def parse_args(args):
 class View:
     """One table: its columns, its rows, and what to call it."""
 
-    def __init__(self, columns, buckets, subtitle, tasks, hint=""):
+    def __init__(self, columns, buckets, subtitle, tasks, hint="",
+                 unit="rows"):
         self.columns = columns
         self.buckets = buckets
         self.subtitle = subtitle
         self.tasks = tasks          # distinct tasks behind the whole view
         self.hint = hint
+        self.unit = unit            # what one of its rows is, in prose
         # Somewhere for a frontend to keep its rendering of these buckets.
         # It hangs off the view rather than off the frontend because a view
         # is built exactly when its data changes, so nothing kept here can
@@ -429,6 +433,7 @@ def build(rows, mode, scope="", label_width=None, unknown="—") -> View:
             scope or "every task",
             tasks,
             "" if scope else "Narrow it with /token-cost tasks week or tasks month.",
+            "tasks",
         )
 
     if mode == "sessions":
@@ -444,6 +449,7 @@ def build(rows, mode, scope="", label_width=None, unknown="—") -> View:
             + NUMERIC_COLS,
             buckets, subtitle, tasks,
             "Run /token-cost tasks for a per-task breakdown.",
+            "sessions",
         )
 
     if mode == "models":
@@ -459,6 +465,7 @@ def build(rows, mode, scope="", label_width=None, unknown="—") -> View:
             + NUMERIC_COLS[:-1] + [ctx_col, NUMERIC_COLS[-1]],
             model_buckets(rows), scope, tasks,
             "Run /token-cost tasks for a per-task breakdown.",
+            "models",
         )
 
     buckets = day_buckets(rows)
@@ -469,6 +476,7 @@ def build(rows, mode, scope="", label_width=None, unknown="—") -> View:
         scope or (f"{min(days)} → {max(days)}" if days else ""),
         tasks,
         "Run /token-cost tasks for a per-task breakdown.",
+        "days",
     )
 
 

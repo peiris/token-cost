@@ -118,7 +118,8 @@ def tabs_ok(rows: list[dict], project: str) -> list[str]:
     The framed tabs carry a frame around a table around a prose column, and
     each of those can be the one that overruns. Both budget states, because
     the over-budget page is a different page: same chrome and summary, a
-    table down to its header and its total, and the notice under it.
+    table cut to the rows the pane can carry, the line that says how many it
+    left behind, and the notice under it.
     """
     problems = []
     for width in range(report.MIN_WIDTH, report.MAX_WIDTH + 21):

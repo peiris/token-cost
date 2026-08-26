@@ -205,17 +205,20 @@ account for nearly half of what the project cost.
 subagent. The model named is the one that carried the spend, not just the
 first one seen.
 
-Every task is listed. No cut-off, no "latest N" — a table that quietly drops
-rows is worse than a long one, because nothing on screen tells you something
-is missing. Use a period filter when you want less (below).
+Every task is listed. No silent cut-off, no "latest N" — a table that quietly
+drops rows is worse than a long one, because nothing on screen tells you
+something is missing. Where a chat message cannot carry them all the table
+still stops, but it says so on its own last row rather than going quiet. Use a
+period filter when you want less (below).
 
 In the conversation there is one limit, and it isn't ours: inline shell output
 reaches Claude through the Bash tool, which carries about 30,000 characters
 (the command allows itself 28,000 of them). Past that the model is handed a
 file path and a preview instead of a table, so printing more doesn't produce a
 longer table — it produces none. When a task list would cross that line the
-page stays the page: same tab, same model split, and a table down to its
-header and its total, with a note saying where the rows are:
+page stays the page: same tab, same model split, and the table itself down to
+its first hundred rows, with its last row naming what it left behind (four
+rows here, where the page you get carries a hundred):
 
 ```
 ╭──────────────────────────────────────────────────────────────────────────────────────╮
@@ -237,20 +240,26 @@ header and its total, with a note saying where the rows are:
 ╭─ Every Task ─────────────────────────────────────────────────────────────────────────╮
 │                                                                                      │
 │  TIME         TASK                    MODEL       INPUT  OUTPUT  CACHE R     EST. $  │
+│  08-26 23:14  Can we migrate the ou…  opus-5        210   41.2k    18.6M     $14.77  │
+│  08-26 21:02  Fix the drawer animat…  opus-5         98   12.4k     5.1M      $4.12  │
+│  08-26 19:37  /token-cost tasks       haiku-4-5      12    1.1k   302.9k      $0.24  │
+│  08-26 18:55  Add the assay results…  opus-5 +1     164   28.9k    11.3M      $9.06  │
+│                                                                                      │
+│  Showing 100 tasks out of 930. Run /token-cost html to get full report.              │
 │  ──────────────────────────────────────────────────────────────────────────────────  │
 │  TOTAL                                           102.3k   22.5M  8928.0M  $7,104.78  │
 │                                                                                      │
 ╰──────────────────────────────────────────────────────────────────────────────────────╯
 
-930 rows is 83,392 characters — past the 28,000 a conversation can carry, so the table
-would arrive as a file preview rather than rows.
+930 tasks is 83,392 characters — past the 28,000 a conversation can carry, so the
+table above stops at 100.
 
   token-cost                 the full list, scrollable
   /token-cost tasks week     the last 7 days, in chat
 ```
 
-The summary above it is the point: it is the part that still fits, and on a
-project this size it is most of what you wanted anyway. Run `report.py` from a
+A hundred rows is more than a chat message is usually read for, and the model
+split above them is the part that speaks for all 930. Run `report.py` from a
 shell and there is no budget at all — it prints all 930 rows. The ceiling only
 applies to what has to travel through a chat message.
 
