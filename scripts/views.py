@@ -447,9 +447,7 @@ def build(rows, mode, scope="", label_width=None, unknown="—") -> View:
              ("TIME", "<", started, None),
              ("OPENED WITH", "<", lambda b: label_of(b, width, unknown), None)]
             + NUMERIC_COLS,
-            buckets, subtitle, tasks,
-            "Run /token-cost tasks for a per-task breakdown.",
-            "sessions",
+            buckets, subtitle, tasks, unit="sessions",
         )
 
     if mode == "models":
@@ -463,9 +461,7 @@ def build(rows, mode, scope="", label_width=None, unknown="—") -> View:
         return View(
             [("MODEL", "<", lambda b: b["key"], None)]
             + NUMERIC_COLS[:-1] + [ctx_col, NUMERIC_COLS[-1]],
-            model_buckets(rows), scope, tasks,
-            "Run /token-cost tasks for a per-task breakdown.",
-            "models",
+            model_buckets(rows), scope, tasks, unit="models",
         )
 
     buckets = day_buckets(rows)
@@ -475,8 +471,7 @@ def build(rows, mode, scope="", label_width=None, unknown="—") -> View:
         buckets,
         scope or (f"{min(days)} → {max(days)}" if days else ""),
         tasks,
-        "Run /token-cost tasks for a per-task breakdown.",
-        "days",
+        unit="days",
     )
 
 

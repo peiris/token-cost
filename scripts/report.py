@@ -570,21 +570,18 @@ def render(view, width: int = 0, limit: int = 0) -> str:
 
 def budget_notice(view, size: int, budget: int, width: int,
                   shown: int) -> str:
-    """Why the table above stops where it does, and where the rest is.
+    """Why the table above stops where it does.
 
     Inline shell output reaches the conversation through the Bash tool, which
     carries about 30k characters; past that the model is handed a file path
     and a preview rather than a table. Printing 90k anyway doesn't produce a
     long table, it produces no table. So the table carries what it can, and
-    this says what that cost and points at the UI, which has no ceiling.
+    this says what that cost. Where the rest is, its last row already said.
     """
-    said = wrap(f"{len(view.buckets):,} {view.unit} is {size:,} characters —"
-                f" past the {budget:,} a conversation can carry, so the table"
-                f" above stops at {shown:,}.", width)
-    return "\n".join(said + [""] + pairs([
-        ("token-cost", "the full list, scrollable"),
-        ("/token-cost tasks week", "the last 7 days, in chat"),
-    ], width))
+    return "\n".join(wrap(
+        f"{len(view.buckets):,} {view.unit} is {size:,} characters — past the"
+        f" {budget:,} a conversation can carry, so the table above stops at"
+        f" {shown:,}.", width))
 
 
 def ui_command() -> str:

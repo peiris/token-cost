@@ -142,7 +142,6 @@ period. The examples below are one small project seen several ways.
 ╰──────────────────────────────────────────────────────────────────────────────────────╯
 
 Estimated from published API rates; subscription plans are not billed per token.
-Run /token-cost tasks for a per-task breakdown.
 ```
 
 The detailed day view: the whole life of the project, a row per calendar day.
@@ -253,9 +252,6 @@ rows here, where the page you get carries fifty):
 
 930 tasks is 83,392 characters — past the 28,000 a conversation can carry, so the
 table above stops at 50.
-
-  token-cost                 the full list, scrollable
-  /token-cost tasks week     the last 7 days, in chat
 ```
 
 Fifty rows is more than a chat message is usually read for, and the model
@@ -294,7 +290,6 @@ applies to what has to travel through a chat message.
 ╰──────────────────────────────────────────────────────────────────────────────────────╯
 
 Estimated from published API rates; subscription plans are not billed per token.
-Run /token-cost tasks for a per-task breakdown.
 ```
 
 One row per Claude Code session, newest first. OPENED WITH is the session's
@@ -375,7 +370,6 @@ and its shape is a shape per day:
 ╰──────────────────────────────────────────────────────────────────────────────────────╯
 
 Estimated from published API rates; subscription plans are not billed per token.
-Run /token-cost tasks for a per-task breakdown.
 ```
 
 ### Narrowing any view
