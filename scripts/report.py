@@ -688,6 +688,16 @@ def ensure_command() -> None:
         pass  # never let this get between the user and their table
 
 
+def remote_session() -> bool:
+    """True in a cloud session, where the ledger can only be the container's.
+
+    Claude Code sets CLAUDE_CODE_REMOTE for its own remote sessions and tests
+    it against the string "true"; read it the same way rather than inventing
+    a second idea of what counts as remote.
+    """
+    return os.environ.get("CLAUDE_CODE_REMOTE") == "true"
+
+
 def main() -> int:
     ensure_command()
     args = sys.argv[1:]
@@ -740,11 +750,30 @@ def main() -> int:
             print(line)
 
     if not rows:
+        if remote_session():
+            say("Nothing to report: this is a cloud session.")
+            print()
+            say("A ledger belongs to the machine that ran the tasks. A cloud"
+                " session runs in a container built for it and thrown away"
+                " afterwards, so there is no history in this one and no reach"
+                " into yours — your project's usage is on the machine where"
+                " you run Claude Code yourself.")
+            return 0
         say(f"No token usage recorded yet for {project}.")
         print()
         say("Usage is recorded automatically as tasks complete —"
             " finish a task and run /token-cost again.")
         return 0
+
+    if remote_session():
+        # Rows in a cloud session are the container's own tasks, filed under
+        # its home directory. Say whose they are before drawing a table that
+        # otherwise reads as this project's whole history.
+        say(f"Cloud session: the rows below are this container's own tasks,"
+            f" recorded against {Path(cwd).resolve()}, and they go away with"
+            f" it. Your project's usage is on the machine where you run"
+            f" Claude Code yourself.")
+        print()
 
     if period:
         narrowed, scope = views.in_window(rows, period)
