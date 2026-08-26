@@ -1,6 +1,6 @@
-# Claude Code token cost
+# Claude Code Token Cost
 
-A Claude Code plugin that records what each task actually costs based on the token usage, per project.
+Claude Code plugin that tracks token usage and estimated cost per task and project
 
 When a task finishes, a `Stop` hook reads the token usage that turn actually
 consumed and appends it to a private ledger outside your repo. `/token-cost`
