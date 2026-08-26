@@ -84,6 +84,16 @@ def ledger_path(cwd: str, transcript_path=None) -> Path:
     return ledger_dir(transcript_path) / f"{slug_for(cwd)}.jsonl"
 
 
+def report_path(cwd: str, transcript_path=None) -> Path:
+    """This project's browser report.
+
+    Here rather than in html_report.py because the recorder has to know
+    whether a project has one before deciding to spend anything keeping it
+    current -- and answering that must not cost an import.
+    """
+    return ledger_dir(transcript_path) / ".reports" / f"{slug_for(cwd)}.html"
+
+
 # The ledger format this code writes. Bump it whenever rows gain a field or
 # change meaning. A project whose stamp disagrees is rebuilt from its
 # transcripts at the next sync -- that is the whole migration story, and why

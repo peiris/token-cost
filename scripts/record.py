@@ -108,6 +108,28 @@ def run_hook() -> None:
     )
     state["seen"].extend(r["request_id"] for r in records)
     ledger.save_state(session_id, state, transcript)
+    refresh_page(cwd, transcript)
+
+
+def refresh_page(cwd: str, transcript=None) -> None:
+    """Keep this project's browser report in step with the ledger.
+
+    A page left open is worth a refresh rather than a rebuild, so whoever
+    writes rows also rewrites the page they belong on. Only where there is
+    one: the stat comes first and html_report is imported only past it, so a
+    project nobody has run `/token-cost html` in pays a stat per task and
+    nothing else.
+
+    Silent whatever happens. This runs inside the Stop hook, and a page that
+    will not build must never be why a turn fails.
+    """
+    try:
+        if not ledger.report_path(cwd, transcript).is_file():
+            return
+        import html_report
+        html_report.refresh(cwd, transcript)
+    except Exception:
+        pass
 
 
 # --------------------------------------------------------------------------
@@ -272,27 +294,36 @@ def sync(cwd: str, force: bool = False, transcript=None) -> dict:
         # the old file. The user never meets an old-format row: this runs
         # inside the SessionStart sync, so opening a project heals it.
         if force or ledger.stamped_format(cwd, transcript) != ledger.FORMAT:
-            return _rebuild(cwd, transcript, path, tdir, result)
-
-        for session_file in sorted(p for p in tdir.glob("*.jsonl") if p.is_file()):
-            session_id = session_file.stem
-            # Sessions already tracked are read from their recorded offset,
-            # not skipped: what has already been counted is behind that mark,
-            # and anything past it is a turn nobody recorded.
-            tracked = ledger.state_path(session_id, transcript).exists()
-            state = ledger.load_state(session_id, transcript)
-            rows, new_state = import_session(session_file, state)
-            if not rows:
-                if new_state.get("offsets") != state.get("offsets"):
-                    ledger.save_state(session_id, new_state, transcript)
-                result["skipped"] += 1 if tracked else 0
-                continue
-            ledger.append_rows(path, rows)
-            ledger.save_state(session_id, new_state, transcript)
-            result["resumed" if tracked else "imported"] += 1
-            result["tasks"] += len({r["turn"] for r in rows})
+            # Mutates `result` and hands it back; taken as a branch rather
+            # than a return so a rebuild reaches the page refresh below.
+            _rebuild(cwd, transcript, path, tdir, result)
+        else:
+            for session_file in sorted(p for p in tdir.glob("*.jsonl")
+                                       if p.is_file()):
+                session_id = session_file.stem
+                # Sessions already tracked are read from their recorded
+                # offset, not skipped: what has already been counted is
+                # behind that mark, and anything past it is a turn nobody
+                # recorded.
+                tracked = ledger.state_path(session_id, transcript).exists()
+                state = ledger.load_state(session_id, transcript)
+                rows, new_state = import_session(session_file, state)
+                if not rows:
+                    if new_state.get("offsets") != state.get("offsets"):
+                        ledger.save_state(session_id, new_state, transcript)
+                    result["skipped"] += 1 if tracked else 0
+                    continue
+                ledger.append_rows(path, rows)
+                ledger.save_state(session_id, new_state, transcript)
+                result["resumed" if tracked else "imported"] += 1
+                result["tasks"] += len({r["turn"] for r in rows})
     finally:
         _release_lock(lock)
+    # Once, after the lot, and outside the lock: a sync that imports forty
+    # sessions should rewrite the page it invalidates once rather than forty
+    # times, and nobody else's sync should wait behind the roll-up.
+    if result["rebuilt"] or result["imported"] or result["resumed"]:
+        refresh_page(cwd, transcript)
     return result
 
 

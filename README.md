@@ -428,6 +428,8 @@ using.
 
 The ledger is brought up to date on every session start, and again whenever
 you run one of these — so it also picks up sessions another machine recorded.
+Anything that writes rows also refreshes the browser report, where the
+project has one.
 Once a project is synced that check costs about 40ms, even across 500
 sessions; a cold import of 500 sessions takes about two.
 
@@ -590,10 +592,16 @@ doesn't, so `LC_ALL=C` degrades instead of drawing blanks.
 /token-cost html
 ```
 
-The same UI a third time, as a page. `/token-cost html` builds it, opens it,
-and tells the conversation where it went — there is nothing to read in the
-chat, because everything is in the other window. `token-cost html` does the
-same from a shell.
+The same UI a third time, as a page. `/token-cost html` opens it and tells
+the conversation where it went — there is nothing to read in the chat,
+because everything is in the other window. `token-cost html` does the same
+from a shell.
+
+**Leave it open.** The page is rebuilt as tasks finish, by the same hook that
+records them, so refreshing the tab shows the latest — you do not run the
+command again. The command itself is usually just an open: it compares the
+page against the ledger first and only rebuilds when it has fallen behind,
+which it does in about a millisecond.
 
 It exists because the other two frontends both have a ceiling and this one
 has none. A chat message can carry about 28,000 characters, so a long table
@@ -611,6 +619,32 @@ exactly the rows left, so it always adds up to what you can see.
 `←`/`→` or `1`–`6` move between tabs, `/` focuses the search, `Esc` clears it,
 `g`/`G` jump to top and bottom. The tab you are on is in the URL, so a reload
 comes back to it.
+
+<details>
+<summary>What it costs to keep current, and who pays it</summary>
+
+Only a project that has one pays anything. The recorder checks whether the
+page exists before it imports anything to rebuild it, so a project nobody has
+run `/token-cost html` in pays one `stat` per task — 0.02ms — and nothing
+else. Where there is a page, rebuilding it costs about 9ms per task on a
+260-row ledger, and scales with the ledger: the roll-up is nearly all of it.
+
+A sync that imports forty sessions at once rewrites the page once at the end
+rather than forty times, and does it after releasing the ledger lock so
+nobody else's sync waits behind it. The write is staged — scratch file, one
+rename — so a browser reading the file mid-rebuild gets the old page or the
+new one, never half of each.
+
+`TOKEN_COST_NO_REFRESH=1` switches the whole thing off; so does deleting the
+page, since the recorder never creates one.
+
+Because a hook is not a guarantee — they can be switched off, and a session
+that installed the plugin mid-flight has none registered until it restarts —
+the command never assumes it ran. It compares modification times: the page,
+the ledger it was built from, and the template, since a plugin update that
+changes how the page looks leaves every page built before it behind.
+
+</details>
 
 <details>
 <summary>Why the page carries its own data instead of reading the ledger</summary>
@@ -644,6 +678,9 @@ runs the two against each other over several hundred values, ties included.
 <claude-data-dir>/token-cost/.state/<session>.json   per-session scan cursors
 <claude-data-dir>/token-cost/.reports/<key>.html     the browser report
 ```
+
+The report is written by whoever last wrote to the ledger, so it is as
+current as the ledger is.
 
 `<claude-data-dir>` is wherever Claude Code already keeps its data — usually
 `~/.claude`, or `$CLAUDE_CONFIG_DIR` if you have moved it. The plugin doesn't

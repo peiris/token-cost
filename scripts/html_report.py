@@ -238,24 +238,32 @@ def render(rows: list, project: str) -> str:
             .replace(DATA_SLOT, data.replace("</", "<\\/")))
 
 
-def report_path(cwd: str) -> Path:
-    """Where this project's page lives.
+def is_current(cwd: str, transcript=None) -> bool:
+    """Whether this project's page already says what the ledger says.
 
-    One path per project, beside the ledger it was made from and named the
-    same way, so re-running the command replaces the page rather than
-    leaving a trail of them -- and the tab already open on it reloads.
+    By modification time, because that is a stat rather than a roll-up, and
+    the two files sit in the same directory: the page is written after the
+    rows it was built from, so a page older than the ledger is a page with
+    rows missing. The template counts too -- a plugin update that changes
+    how the page looks leaves every built page behind it.
     """
-    return ledger.ledger_dir() / ".reports" / f"{ledger.slug_for(cwd)}.html"
+    page = ledger.report_path(cwd, transcript)
+    try:
+        built = page.stat().st_mtime
+        return (built >= ledger.ledger_path(cwd, transcript).stat().st_mtime
+                and built >= TEMPLATE.stat().st_mtime)
+    except OSError:
+        return False
 
 
-def write(cwd: str, page: str) -> Path:
+def write(cwd: str, page: str, transcript=None) -> Path:
     """The page on disk, in one rename.
 
     Staged the way the ledger's own rebuilds are: a browser reading the file
     while we write it should see the old page or the new one, never half of
     each.
     """
-    target = report_path(cwd)
+    target = ledger.report_path(cwd, transcript)
     target.parent.mkdir(parents=True, exist_ok=True)
     scratch = target.with_suffix(f".{os.getpid()}.tmp")
     scratch.write_text(page, encoding="utf-8")
@@ -293,6 +301,33 @@ def build(cwd: str, rows: list, project: str) -> tuple[Path, bool]:
     return path, open_browser(path)
 
 
+def refresh(cwd: str, transcript=None) -> bool:
+    """Bring this project's page up to date -- if it has one.
+
+    Called by the recorder, so that a page left open in a browser is one
+    refresh away from the latest data rather than one rebuild away. It never
+    creates a page: only a project where someone has actually run
+    `/token-cost html` has one to keep current, and a hook that ran on every
+    task in every project would be paying a roll-up for pages nobody has.
+
+    Returns whether it wrote anything. Quiet about everything else -- this
+    runs inside a Stop hook, and a report that cannot be built must never be
+    the reason a turn fails.
+    """
+    if os.environ.get("TOKEN_COST_NO_REFRESH"):
+        return False
+    if not ledger.report_path(cwd, transcript).is_file():
+        return False
+    try:
+        rows = ledger.read_ledger(ledger.ledger_path(cwd, transcript))
+        if not rows:
+            return False
+        write(cwd, render(rows, Path(cwd).resolve().name), transcript)
+        return True
+    except Exception:
+        return False
+
+
 # --------------------------------------------------------------------------
 # what the command says
 # --------------------------------------------------------------------------
@@ -303,7 +338,14 @@ def launch_block(cwd: str, rows: list, project: str, width: int) -> str:
     Whoever reads this has their data in another window, so say that first
     and plainly -- as with `ui`, there is nothing to read here.
     """
-    path, opened = build(cwd, rows, project)
+    # The recorder keeps this page current as tasks finish, so most of the
+    # time there is nothing to build and this is only an open. The check is
+    # a stat: hooks can be switched off, and a session that installed the
+    # plugin mid-flight has none registered until it restarts.
+    fresh = is_current(cwd)
+    path = (ledger.report_path(cwd) if fresh
+            else write(cwd, render(rows, project)))
+    opened = open_browser(path)
     tabs = " · ".join(label for label, _, _ in views.TABS)
     keys = "Click or ←/→ tabs · 1-6 jump · / search · Esc clears"
     lines = []
@@ -322,6 +364,9 @@ def launch_block(cwd: str, rows: list, project: str, width: int) -> str:
     lines += report.wrap("Every task on record, with every column, and"
                          " nothing dropped for room — click a header to sort,"
                          " type in the box to filter.", width)
+    lines += report.wrap("It is rebuilt as tasks finish, so refreshing the"
+                         " page is enough to see the latest — no need to run"
+                         " this again.", width)
     lines += ["", f"    {path}"]
     return "\n".join(lines)
 
@@ -339,7 +384,9 @@ def cli(cwd: str) -> int:
         print(f"token-cost: no token usage recorded yet for {project}.",
               file=sys.stderr)
         return 1
-    path, opened = build(cwd, rows, project)
+    path = (ledger.report_path(cwd) if is_current(cwd)
+            else write(cwd, render(rows, project)))
+    opened = open_browser(path)
     print(f"token-cost: {'opened' if opened else 'written to'} {path}")
     return 0
 

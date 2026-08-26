@@ -419,6 +419,85 @@ def check_in_browser(name: str, rows: list[dict], page: str,
 
 
 # --------------------------------------------------------------------------
+# and it has to keep itself current
+# --------------------------------------------------------------------------
+
+def check_freshness() -> None:
+    """The page the recorder keeps in step, and the check that doesn't trust
+    it to have run.
+
+    Two halves that have to hold together. The recorder rewrites the page as
+    rows land, so a browser refresh is all it takes to see the latest -- but
+    only where a page exists, because a project nobody has opened one in
+    must not start paying for one. And the command never assumes the
+    recorder ran: hooks can be switched off, and a session that installed
+    the plugin mid-flight has none registered until it restarts.
+
+    Run against a ledger root of its own, so nothing here touches a real one.
+    """
+    print("\nkeeping current")
+    import os
+    import time
+
+    import record
+    root = Path(tempfile.mkdtemp(prefix="token-cost-fresh-"))
+    project = root / "a-project"
+    project.mkdir()
+    cwd = str(project)
+    was, ledger._ROOT_OVERRIDE = ledger._ROOT_OVERRIDE, str(root / "ledger")
+    try:
+        rows = synthetic(days=2)
+        path = ledger.ledger_path(cwd)
+        ledger.append_rows(path, rows)
+
+        page = ledger.report_path(cwd)
+        check(not page.exists(), "no page until somebody asks for one")
+        check(html_report.refresh(cwd) is False,
+              "the recorder builds no page where there is none")
+        check(not page.exists(), "and still none afterwards")
+        record.refresh_page(cwd)
+        check(not page.exists(), "nor through the recorder's own entry point")
+
+        html_report.write(cwd, html_report.render(rows, "a-project"))
+        check(page.is_file(), "the command builds one")
+        check(html_report.is_current(cwd), "freshly built, it is current")
+
+        # A task finishes: rows land, and the page is a row behind until
+        # whoever wrote them says so.
+        time.sleep(0.02)
+        more = synthetic(days=3)[-3:]
+        ledger.append_rows(path, more)
+        check(not html_report.is_current(cwd), "a new row makes it stale")
+
+        before = page.stat().st_mtime
+        check(html_report.refresh(cwd) is True, "the recorder rewrites it")
+        check(html_report.is_current(cwd), "and it is current again")
+        check(page.stat().st_mtime >= before, "the file actually changed")
+        held = len(embedded(page.read_text(encoding="utf-8"))
+                   ["tabs"][4]["main"]["rows"])
+        want = len(views.Tab(ledger.read_ledger(path), "tasks", None)
+                   .main.buckets)
+        check(held == want, f"the rewritten page holds every row ({want})")
+
+        # A plugin update ships a new template; every page built by the old
+        # one is behind it, however recent the ledger is.
+        time.sleep(0.02)
+        html_report.TEMPLATE.touch()
+        check(not html_report.is_current(cwd),
+              "a newer template makes it stale")
+
+        os.environ["TOKEN_COST_NO_REFRESH"] = "1"
+        try:
+            check(html_report.refresh(cwd) is False,
+                  "TOKEN_COST_NO_REFRESH switches it off")
+        finally:
+            del os.environ["TOKEN_COST_NO_REFRESH"]
+    finally:
+        ledger._ROOT_OVERRIDE = was
+        shutil.rmtree(root, ignore_errors=True)
+
+
+# --------------------------------------------------------------------------
 
 def main() -> int:
     args = sys.argv[1:]
@@ -443,6 +522,7 @@ def main() -> int:
             check_agrees(name, rows, data)
             if has_node:
                 check_in_browser(name, rows, page, work)
+        check_freshness()
     finally:
         if keep:
             print(f"\nleft behind: {work}")
