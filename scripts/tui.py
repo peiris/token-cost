@@ -686,10 +686,15 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
         # column is a crash, and a header with no rows under it is a bug.
         if not shown:
             return 0
-        costs = [ledger.fmt_usd(b["cost"], b["cost_known"]) for b in shown]
-        counts = [ledger.fmt_tokens(views.total_tokens(b)) for b in shown]
+        # Sized from every day rather than the ones that fit, the way peak
+        # already is: a column that changes width as rows scroll past it is a
+        # column you cannot read down, and it would put this panel a space
+        # out from the same panel printed by report.py.
+        costs = [ledger.fmt_usd(b["cost"], b["cost_known"]) for b in days]
+        counts = [ledger.fmt_tokens(views.total_tokens(b)) for b in days]
         cost_w = max(len(c) for c in costs)
         count_w = max(len(c) for c in counts)
+        first = len(days) - len(shown)
         label_w, count_x, cost_x = views.figure_slots(cw, count_w, cost_w)
         # The date, the space after it, and the two edges around the bar.
         # Whatever is left is the bar; a panel with no room for one shows the
@@ -705,10 +710,10 @@ def draw_overview(sc: Screen, data: Data, top: int, offset: int) -> int:
                           muted)
                 sc.put_in(cy + i, cx + 7 + room, RIGHT_EDGE, cx + label_w,
                           accent)
-            sc.put_in(cy + i, cx + count_x, counts[i].rjust(count_w),
+            sc.put_in(cy + i, cx + count_x, counts[first + i].rjust(count_w),
                       cx + cw, muted)
-            sc.put_in(cy + i, cx + cost_x, costs[i].rjust(cost_w), cx + cw,
-                      curses.A_BOLD)
+            sc.put_in(cy + i, cx + cost_x, costs[first + i].rjust(cost_w),
+                      cx + cw, curses.A_BOLD)
         y += chart_h + 1
 
     tasks = figures.tasks
