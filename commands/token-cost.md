@@ -3,6 +3,7 @@ description: Show token usage and estimated cost for this project
 argument-hint: "[tasks|sessions|days|ui] [today|week|month]"
 allowed-tools: Bash(python3:*)
 model: haiku
+effort: low
 ---
 
 !`R="${CLAUDE_PLUGIN_ROOT}/scripts/report.py"; if [ -f "$R" ]; then python3 "$R" --cwd "$PWD" --budget 28000 $ARGUMENTS; else echo "token-cost: cannot locate report.py (CLAUDE_PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-unset}). Is the plugin installed?"; fi`

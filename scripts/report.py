@@ -255,13 +255,23 @@ def figure_row(left: str, tokens: str, cost: str, width: int,
     return (row.ljust(cost_x) + cost.rjust(cost_w))[:width]
 
 
+# A model retypes this page before anyone sees it, and a box-drawing glyph
+# costs about a token of its own: 2929 output tokens for the overview, 1234
+# once the chart runs are ASCII. The frames stay -- long runs of ─ merge
+# cheaply, and they are what makes this read as the UI seen twice. The bars
+# were the whole bill, so here alone they speak ASCII. tui.py draws its own,
+# on a terminal that charges nothing for a nicer glyph.
+BAR_FILL, BAR_TRACK = "=", "-"
+BAR_LEFT, BAR_RIGHT = "[", "]"
+
+
 def bar(value: float, peak: float, width: int):
     """tui.bar: (filled, remainder). Any non-zero value keeps a cell, so a
     day that cost something never renders as nothing at all."""
     if peak <= 0 or width <= 0:
         return "", ""
     cells = min(width, max(1, round(value / peak * width))) if value > 0 else 0
-    return "▄" * cells, "┈" * (width - cells)
+    return BAR_FILL * cells, BAR_TRACK * (width - cells)
 
 
 def model_rows(models: list[dict], width: int) -> list[str]:
@@ -295,7 +305,7 @@ def day_rows(days: list[dict], width: int) -> list[str]:
     rows = []
     for b, count, cost in zip(days, counts, costs):
         filled, rest = bar(b["cost"], peak, room)
-        label = (f"{b['key'][5:]} ▕{filled}{rest}▏" if room
+        label = (f"{b['key'][5:]} {BAR_LEFT}{filled}{rest}{BAR_RIGHT}" if room
                  else b["key"][5:])
         rows.append(figure_row(label, count, cost, width, count_w, cost_w,
                                GAP))

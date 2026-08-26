@@ -206,6 +206,19 @@ def frozen_config() -> str:
     return str(home)
 
 
+# The report and the UI draw the same bar out of different glyphs: ASCII
+# where a model has to retype the page, block glyphs where a terminal draws
+# it for free. Same cells either way, so compare the shape, not the
+# codepoint. Applied to both sides, so anything that is not a bar -- a date,
+# a task label -- still has to match itself exactly.
+_BAR_ALIKE = str.maketrans({"▄": "#", "=": "#", "┈": ".", "-": ".",
+                            "▕": "|", "▏": "|", "[": "|", "]": "|"})
+
+
+def same_bar(line: str) -> str:
+    return line.translate(_BAR_ALIKE)
+
+
 def agrees_with_ui(cwd: str) -> list[str]:
     """Every line the UI draws has to be a line the report prints.
 
@@ -233,10 +246,12 @@ def agrees_with_ui(cwd: str) -> list[str]:
             for tab, frame in enumerate(captured):
                 label, mode, period = views.TABS[tab]
                 drawn = set(
+                    same_bar(line) for line in
                     (report.overview(rows, project, width) if mode == "overview"
                      else report.tab_report(rows, project, mode, period, width)
                      ).split("\n"))
-                gone = [line for line in ui_lines(frame) if line not in drawn]
+                gone = [line for line in ui_lines(frame)
+                        if same_bar(line) not in drawn]
                 for line in gone[:4]:
                     problems.append(f"{term_rows}x{cols} {label}: the UI draws"
                                     f" a line the report doesn't\n  |{line}|")
