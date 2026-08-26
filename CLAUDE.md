@@ -38,13 +38,25 @@ checkout, so a release the local install never received changed nothing.
   it: once the work is done and verified, run the full publish sequence
   below as part of the same task — don't stop at the working tree and
   offer to release.
-- Publish = bump the plugin version, commit, push, then
-  `claude plugin update token-cost@token-cost` — the bare name doesn't
-  resolve; the `@token-cost` marketplace suffix is required — and a
-  Claude Code restart to apply.
+- Publish = bump the plugin version, commit, push, then **both**
+  installs: `claude plugin update token-cost@token-cost` for the CLI —
+  the bare name doesn't resolve; the `@token-cost` marketplace suffix is
+  required — and `python3 dev/resync_claudeai.py` for Claude Desktop.
+  Each needs its own restart to apply.
 - Push before updating: the marketplace pulls from GitHub, not from this
   directory. And without a version bump there is nothing for it to pull
   — the cache is keyed by the version string.
+- **Claude Desktop is a second install, and it wins.** Where a plugin
+  exists both locally and on claude.ai, the desktop runs the claude.ai
+  copy and ignores the one the CLI installed. claude.ai only re-clones
+  the repo when asked — the marketplace says `auto_sync_on_push` but has
+  no webhook behind it — so `claude plugin update` alone leaves the
+  desktop on whatever commit claude.ai last saw, with its Update button
+  reading "On latest version". `dev/resync_claudeai.py` is the ask; it
+  exits non-zero unless claude.ai lands on HEAD.
+- A re-sync that changes hooks or executables comes back flagged
+  `exec_surface_changed`. That is claude.ai noting the plugin's exec
+  surface moved, not a failed sync — the new version is stored.
 
 ## Never discard another agent's work in the working tree
 
