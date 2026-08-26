@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
-"""Fill this project's ledger with a month of plausible usage, for demos.
+"""Fill this project's ledger with plausible usage, for demos.
 
 The recorder derives rows from real transcripts; this derives the same rows
 from a script -- a build of this plugin as it might have gone, laid over the
-last few weeks. It goes through `ledger` and `record` rather than writing
+last few days. It goes through `ledger` and `record` rather than writing
 JSON by hand, so every mock row is grouped, billed and priced by exactly the
 code the live path uses. A demo ledger cannot drift from a real one.
 
     python3 dev/mock_ledger.py             # replace this project's ledger
-    python3 dev/mock_ledger.py --days 45   # a longer history
+    python3 dev/mock_ledger.py --days 30   # a longer history
     python3 dev/mock_ledger.py --restore   # put the real ledger back
 
-The history always ends today, with the last day filled up to the current
-hour, so re-running it just before a take gives a ledger whose "Today" tab
-has something in it. The real ledger is copied to `<slug>.jsonl.real` on the
-first run and that copy is never overwritten, so --restore always finds the
-original.
+Three days by default, which is how long this plugin really took. The
+history always ends today, filled up to the hour it is generated at, so
+re-running it just before a take gives a ledger whose "Today" tab has
+something in it -- and drops the turns of the session that generated it.
+The real ledger is copied to `<slug>.jsonl.real` on the first run and that
+copy is never overwritten, so --restore always finds the original.
+
+The span is a dial, not a shape: the same story is told over whatever
+window it is given, at whatever pace fits in the hours those days hold.
 
 Nothing here touches another project: the ledger written is the one for
 --cwd, which defaults to this checkout.
@@ -270,7 +274,7 @@ def request(rng, model, kind, when, inp, out, cache_read, write, ttl, fast):
     return rec
 
 
-def run_turn(rng, model, size, ctx, when, ttl, fast, kind="main"):
+def run_turn(rng, model, size, ctx, when, ttl, fast, kind="main", pace=1.0):
     """A turn's requests, and where it leaves the context and the clock.
 
     Modelled the way a turn really runs: each request re-reads the cached
@@ -289,19 +293,19 @@ def run_turn(rng, model, size, ctx, when, ttl, fast, kind="main"):
             ctx = rng.span(48_000, 92_000)
         tool = rng.span(lo_tool, hi_tool) if hi_tool else 0
         pending = out + tool
-        when += timedelta(seconds=rng.span(4, 70))
+        when += timedelta(seconds=rng.span(4, 70) * pace)
     return recs, ctx, when
 
 
-def agent_turns(rng, when, count):
+def agent_turns(rng, when, count, pace=1.0):
     """Subagent requests for one turn: each agent carries its own context."""
     recs = []
     for _ in range(count):
         model = rng.choice(AGENT_MODELS)
         size = rng.choice(["m", "m", "b", "s"])
         got, _, _ = run_turn(rng, model, size, rng.span(24_000, 128_000),
-                             when + timedelta(seconds=rng.span(2, 40)),
-                             "1h", False, kind="subagent")
+                             when + timedelta(seconds=rng.span(2, 40) * pace),
+                             "1h", False, kind="subagent", pace=pace)
         recs.extend(got)
     return recs
 
@@ -310,9 +314,28 @@ def agent_turns(rng, when, count):
 # laying the story over a calendar
 # --------------------------------------------------------------------------
 
-def day_weights(rng, days, today):
-    """How busy each day was. Weekends are quieter, a few days are pushes,
-    and a couple are missed entirely -- a month of real work is not a rectangle."""
+def day_window(date, today, now, count):
+    """When a day's sessions may run. Today stops at the clock, and a day
+    with a lot of work in it starts earlier -- as those days really do."""
+    start = datetime.combine(date, datetime.min.time(), tzinfo=now.tzinfo)
+    if date == today:
+        first = max(start + timedelta(minutes=10), now - timedelta(hours=10))
+        return first, max(first + timedelta(minutes=25), now - timedelta(minutes=6))
+    opens = timedelta(hours=8) if count > 18 else timedelta(hours=9, minutes=20)
+    return start + opens, start + timedelta(hours=23, minutes=45)
+
+
+def day_weights(rng, days, today, now):
+    """How busy each day was.
+
+    Weekends are quieter, a few days are pushes, and over a long span a
+    couple are missed entirely -- a month of real work is not a rectangle.
+    A short span has no room for a day off: three days with one blank in
+    them reads as a broken tracker rather than as a weekend.
+
+    Today is scaled by the hours it has actually had. Generating at 3am
+    must not claim a full day's work has already happened.
+    """
     weights = []
     for i in range(days):
         date = today - timedelta(days=days - 1 - i)
@@ -320,11 +343,34 @@ def day_weights(rng, days, today):
         w *= rng.uniform(0.55, 1.45)
         if rng.random() < 0.14:          # a push
             w *= rng.uniform(1.8, 2.9)
-        if rng.random() < 0.07 and 0 < i < days - 1:
+        if days >= 12 and rng.random() < 0.07 and 0 < i < days - 1:
             w = 0.0                      # a day away
         weights.append(w)
-    weights[-1] = max(weights[-1], 1.1)  # today always has something in it
+    # Today gets work in proportion to the hours it can actually hold, which
+    # is the window day_window will give it, not the whole day.
+    opens, closes = day_window(today, today, now, 0)
+    room = max(0.4, (closes - opens).total_seconds() / 3600)
+    weights[-1] = max(weights[-1], 1.1) * min(1.0, max(0.12, room / 15.0))
     return weights
+
+
+# What a turn costs in wall-clock, on average: seconds between requests, and
+# seconds between one task ending and the next being asked for.
+_GAP_REQ = 37
+_GAP_TASK = 465
+
+
+def pace_for(todo, span):
+    """How much to compress the clock so a day's work fits its hours.
+
+    Days differ in how much lands in them, and a day of forty tasks is a day
+    of shorter pauses, not a day that runs to four in the morning. Never
+    stretched: a quiet day keeps its natural spacing rather than being spread
+    thin to fill the evening.
+    """
+    wanted = sum((sum(SHAPES[size][0]) / 2) * _GAP_REQ + _GAP_TASK
+                 for _, size, _ in todo)
+    return min(1.0, 0.85 * span / max(1.0, wanted))
 
 
 def share_out(weights, total):
@@ -338,22 +384,13 @@ def share_out(weights, total):
     return counts
 
 
-def day_window(date, today, now):
-    """When a day's sessions may run. Today stops at the clock."""
-    start = datetime.combine(date, datetime.min.time(), tzinfo=now.tzinfo)
-    if date == today:
-        first = max(start + timedelta(minutes=10), now - timedelta(hours=9))
-        return first, max(first + timedelta(minutes=25), now - timedelta(minutes=6))
-    return start + timedelta(hours=9, minutes=20), start + timedelta(hours=23, minutes=40)
-
-
 def build(days, seed):
     rng = Rng(seed)
     now = datetime.now().astimezone()
     today = now.date()
 
     script = list(TASKS)
-    weights = day_weights(rng, days, today)
+    weights = day_weights(rng, days, today, now)
     # Enough work for the calendar: the story first, then the small recurring
     # things a real week is padded with.
     target = max(len(script), int(round(sum(weights) * 7.0)))
@@ -376,7 +413,7 @@ def build(days, seed):
         if not count:
             continue
         date = today - timedelta(days=days - 1 - i)
-        opens, closes = day_window(date, today, now)
+        opens, closes = day_window(date, today, now, count)
         phase = i / max(1, days - 1)
         models = [(m, (e if phase < 0.3 else mid if phase < 0.72 else late))
                   for m, e, mid, late in MAIN_MODELS]
@@ -395,29 +432,42 @@ def build(days, seed):
         # Split the day into sessions of a few tasks each.
         sessions = []
         while todo:
-            take = min(len(todo), rng.span(2, 6))
+            take = min(len(todo), rng.span(3, 11) if count > 18 else rng.span(2, 6))
             sessions.append(todo[:take])
             todo = todo[take:]
 
+        pace = pace_for(script[cursor - count:cursor], (closes - opens).total_seconds())
         room = (closes - opens) / max(1, len(sessions))
+        ended = opens
         for s, tasks in enumerate(sessions):
             session_id = f"{rng.getrandbits(32):08x}-{rng.getrandbits(16):04x}-" \
                          f"4{rng.getrandbits(12):03x}-a{rng.getrandbits(12):03x}-" \
                          f"{rng.getrandbits(48):012x}"
-            when = opens + room * s + timedelta(seconds=rng.span(0, 900))
+            # Spread across the day, but never opened before the last one
+            # was closed: the story is told in the order it happened.
+            when = max(opens + room * s,
+                       ended + timedelta(seconds=rng.span(180, 2400) * pace))
             model = rng.pick(models)
             ttl = "5m" if rng.random() < 0.06 else "1h"
-            fast_session = rng.random() < 0.08
+            fast_session = has_fast(model) and rng.random() < 0.11
             ctx = rng.span(21_000, 46_000)
             for turn, (prompt, size, flags) in enumerate(tasks, start=1):
                 fast = fast_session or "f" in flags
-                turn_model = COMMAND_MODEL if "h" in flags else model
+                # /fast is an Opus setting, so a turn asked to run under it
+                # runs on a model that has a rate for it.
+                turn_model = (COMMAND_MODEL if "h" in flags
+                              else "claude-opus-5" if "f" in flags else model)
                 recs, ctx, when = run_turn(rng, turn_model, size, ctx, when, ttl,
-                                           fast and "h" not in flags)
+                                           fast and "h" not in flags, pace=pace)
                 if "a" in flags:
-                    recs += agent_turns(rng, when, rng.span(1, 4))
+                    recs += agent_turns(rng, when, rng.span(1, 4), pace)
                 rows.extend(record.rows_for(recs, session_id, turn, prompt))
-                when += timedelta(seconds=rng.span(30, 900))
+                when += timedelta(seconds=rng.span(30, 900) * pace)
+                # The pace is an estimate over averages; this is the promise.
+                # No row may land after the day closed -- least of all today,
+                # where past the close is the future.
+                when = min(when, closes)
+            ended = when
     rows.sort(key=lambda r: r["ts"])
     return rows
 
@@ -442,7 +492,7 @@ def restore(path):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--days", type=int, default=33)
+    ap.add_argument("--days", type=int, default=3)
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--cwd", default=str(ROOT))
     ap.add_argument("--restore", action="store_true")
