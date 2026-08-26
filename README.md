@@ -1,6 +1,6 @@
-# token-cost
+# Claude Code token cost
 
-A Claude Code plugin that records what each task costs, per project.
+A Claude Code plugin that records what each task actually costs based on the token usage, per project.
 
 When a task finishes, a `Stop` hook reads the token usage that turn actually
 consumed and appends it to a private ledger outside your repo. `/token-cost`
@@ -398,23 +398,40 @@ every row inside it is printed and TOTAL covers exactly what you can see.
 
 ### What running this costs
 
-Recording costs nothing at all: the `Stop` and `SessionStart` hooks are plain
-Python, and no model is involved in reading a transcript or writing a row.
+Nothing, in the ordinary case: no model is asked anything.
 
-The only model in the loop is the one that prints the table. Inline shell
-output is substituted into the prompt rather than shown directly, so the
-command asks for it to be echoed back — transcription, with no judgement in
-it, and no reason to spend a frontier model on. The command is pinned to the
-cheapest model that can copy a wide table faithfully:
+Recording never involved one — the `Stop` and `SessionStart` hooks are plain
+Python, and reading a transcript to write a row needs no judgement.
+
+Printing used to. Inline shell output is substituted into the prompt rather
+than shown directly, so the command asked the model to echo it back, and a
+page of table is expensive to retype: 2929 output tokens for one overview,
+arriving a line at a time while you watch. A `UserPromptSubmit` hook now
+recognises the command before it expands, prints the report itself and stops
+the turn — the page arrives whole, and the model is never woken.
+
+The hook sees every prompt you type, so it is built to be cheap and to be
+wrong in the safe direction. A prompt that isn't this command costs one
+interpreter start, about 30ms, and nothing heavier is imported until the text
+matches. Matching is strict about the whole prompt rather than its opening,
+because `/token-cost is slow, fix it` is a question for the model and
+answering it with a table would be worse than being slow. Anything it doesn't
+recognise — an unknown argument, an unreadable ledger — falls through
+untouched, and the slash command answers it the old way.
+
+`TOKEN_COST_NO_INTERCEPT=1` always takes that older route.
+
+It is still worth keeping cheap, because it is the fallback:
 
 ```yaml
 model: haiku
+effort: low
 ```
 
-The override lasts for that turn only; your session model resumes on your next
-prompt. To change it, edit `model:` in `commands/token-cost.md` — it takes the
-same values as `/model`, or `inherit` to stay on whatever the session is using.
-Adding `effort: low` alongside it trims the cost further.
+That override lasts for that turn only; your session model resumes on your
+next prompt. To change it, edit `model:` in `commands/token-cost.md` — it takes
+the same values as `/model`, or `inherit` to stay on whatever the session is
+using.
 
 ### Keeping the ledger current
 

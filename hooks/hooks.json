@@ -1,6 +1,17 @@
 {
-  "description": "Record per-task token usage into a private per-project ledger, keep it in sync automatically, and keep the token-cost command on the user's PATH",
+  "description": "Record per-task token usage into a private per-project ledger, answer /token-cost without waking a model, keep the ledger in sync automatically, and keep the token-cost command on the user's PATH",
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/intercept.py\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
