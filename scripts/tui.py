@@ -102,90 +102,12 @@ C_HOVER, C_HOVER_MUTED = 5, 6
 # data
 # --------------------------------------------------------------------------
 
-class Tab:
-    """The tables one tab shows, and what to call each of them.
+# What a tab holds and what to call it is a view question, not a curses one,
+# and the report prints the same tabs this file navigates. Both read it from
+# the one place; these are the names this file has always used.
+Tab = views.Tab
+FilteredTab = views.FilteredTab
 
-    Every tab but the overview leads with a summary of what the table below
-    can't say about itself, so a tab is two views rather than one. Which two
-    is fixed by the tab, and both are built from rows that only change when
-    the ledger is reread -- so they are built here, once, rather than on the
-    way into each frame.
-    """
-
-    def __init__(self, data: "Data", index: int):
-        _, mode, period = TABS[index]
-        self.mode = mode
-        self.query = ""
-        self._filtered = {}
-        rows, self.scope = data.rows, ""
-        if period:
-            rows, self.scope = views.in_window(data.rows, period)
-
-        # Labels are built at their stored length and layout decides how much
-        # of them fits; truncating up front left prompts short in a column
-        # that then turned out to have room to spare.
-        self.view = views.build(rows, mode, self.scope, ledger.PROMPT_CAP,
-                                unknown=views.UNKNOWN_LONG)
-        self.summary = self.summary_title = None
-
-        if mode == "models":
-            # "How much" before "on what": the model split, then the tasks
-            # that made it up.
-            self.summary = self.view
-            self.main = views.build(rows, "tasks", self.scope,
-                                    ledger.PROMPT_CAP,
-                                    unknown=views.UNKNOWN_LONG)
-            self.main_title = f"{len(self.main.buckets)} Tasks"
-        elif mode == "sessions":
-            # No model split here: the table below already names every
-            # session, and repeating the split said nothing the Tasks tab
-            # hadn't. Its summary is the shape of the sessions themselves,
-            # which draw_sessions_summary reads off this same view.
-            self.main = self.view
-            self.main_title = self.view.subtitle
-        else:
-            self.summary = views.build(rows, "models", self.scope,
-                                       ledger.PROMPT_CAP)
-            self.main = self.view
-            self.main_title = self.view.subtitle
-
-        if self.summary is not None:
-            self.summary_title = self.summary.subtitle or "By Model"
-
-    def filtered(self, query: str):
-        """This tab with its named rows narrowed by a search query."""
-        if not query or self.mode not in ("tasks", "sessions"):
-            return self
-        folded = query.casefold()
-        got = self._filtered.get(query)
-        if got is None:
-            got = self._filtered[query] = FilteredTab(self, query, folded)
-        return got
-
-
-class FilteredTab:
-    """A task or session tab whose table contains only named matches."""
-
-    def __init__(self, base: Tab, query: str, folded: str):
-        matches = [
-            bucket for bucket in base.main.buckets
-            if folded in views.label_of(
-                bucket, ledger.PROMPT_CAP, views.UNKNOWN_LONG).casefold()
-        ]
-        tasks = (len(matches) if base.mode == "tasks"
-                 else sum(bucket["tasks"] for bucket in matches))
-        noun = "Tasks" if base.mode == "tasks" else "Sessions"
-        title = f"{len(matches)} of {len(base.main.buckets)} {noun}"
-        narrowed = views.View(base.main.columns, matches, title, tasks,
-                              base.main.hint)
-
-        self.mode = base.mode
-        self.query = query
-        self.scope = base.scope
-        self.view = self.main = narrowed
-        self.main_title = title
-        self.summary = base.summary
-        self.summary_title = base.summary_title
 
 
 class Overview:
@@ -242,7 +164,7 @@ class Data:
     def tab(self, index: int, query: str = "") -> Tab:
         got = self._tabs.get(index)
         if got is None:
-            got = self._tabs[index] = Tab(self, index)
+            got = self._tabs[index] = Tab(self.rows, *TABS[index][1:])
         return got.filtered(query)
 
     def overview(self) -> Overview:

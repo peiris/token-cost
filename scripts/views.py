@@ -170,15 +170,15 @@ class Rendered:
                 str(view.overrides[header]) if header in view.overrides
                 else (str(total_of(view.buckets)) if total_of else ""))
             self.widest[header] = max([len(header)] + [len(c) for c in column])
-        self.fits = {}       # (width, grow) -> (columns, widths, total)
+        self.fits = {}       # width -> (columns, widths, total row)
 
-    def fit(self, width: int, grow: bool = True):
-        got = self.fits.get((width, grow))
+    def fit(self, width: int):
+        got = self.fits.get(width)
         if got is None:
-            got = self.fits[(width, grow)] = self._fit(width, grow)
+            got = self.fits[width] = self._fit(width)
         return got
 
-    def _fit(self, width: int, grow: bool = True):
+    def _fit(self, width: int):
         """Columns and widths that fit `width`.
 
         The prose column flexes: it gives space back before any column is
@@ -216,12 +216,11 @@ class Rendered:
                 break
             cols.pop(headers.index(victim))
 
-        if used < width and grow:
+        if used < width:
             # Fill the width: prose column if there is one, otherwise the
             # label column, which pushes the numbers out to the right edge
-            # where a full-width table wants them. A table printed into a
-            # chat message asks not to: there the width is a ceiling, and a
-            # short table padded out to it is a wall of trailing space.
+            # where a full-width table wants them. Every table either
+            # frontend draws sits in a box with an edge to reach.
             widths[flex if flex is not None else 0] += width - used
         return cols, widths, total
 
@@ -281,7 +280,11 @@ def parse_args(args):
         elif arg.startswith("day") or arg.startswith("date"):
             mode = "days"
     if mode is None:
-        mode = "models" if period else "days"
+        # A bare period names a tab, and that tab decides what it holds:
+        # "today" is the model split, a week or a month is the day table
+        # with the split above it. The UI has always drawn them that way.
+        mode = (next((m for _, m, p in TABS if p == period), "days")
+                if period else "days")
     return mode, period
 
 
@@ -467,3 +470,112 @@ def build(rows, mode, scope="", label_width=None, unknown="—") -> View:
         tasks,
         "Run /token-cost tasks for a per-task breakdown.",
     )
+
+
+def tab_index(mode: str, period: str | None):
+    """The tab a report's (mode, period) is, or None if it isn't one.
+
+    `/token-cost tasks week` is a narrowing no tab offers, and marking the
+    nearest one would be a lie about what is on screen. Nothing is marked.
+    """
+    for index, (_, tab_mode, tab_period) in enumerate(TABS):
+        if tab_mode == mode and tab_period == period:
+            return index
+    return None
+
+
+class Tab:
+    """The tables one tab shows, and what to call each of them.
+
+    Every tab but the overview leads with a summary of what the table below
+    can't say about itself, so a tab is two views rather than one. Which two
+    is fixed by the tab, and both are built from rows that only change when
+    the ledger is reread -- so they are built here, once, rather than on the
+    way into each frame.
+    """
+
+    def __init__(self, rows: list, mode: str, period: str | None = None,
+                 label_width: int = None, unknown: str = None):
+        """A tab over `rows`, or any (mode, period) shaped like one.
+
+        Taken as a mode and a period rather than a tab number because not
+        every report is a tab: `/token-cost tasks week` is a narrowing the
+        UI doesn't offer, and it still wants the two views a tab has.
+
+        `label_width` and `unknown` default to the UI's: prompts kept at
+        their stored length for layout to shorten, and a row with no prompt
+        named in full. A chat message has less room for both.
+        """
+        self.mode = mode
+        self.query = ""
+        self._filtered = {}
+        label_width = ledger.PROMPT_CAP if label_width is None else label_width
+        unknown = UNKNOWN_LONG if unknown is None else unknown
+        self.scope = ""
+        if period:
+            rows, self.scope = in_window(rows, period)
+
+        # Labels are built at their stored length and layout decides how much
+        # of them fits; truncating up front left prompts short in a column
+        # that then turned out to have room to spare.
+        self.view = build(rows, mode, self.scope, label_width,
+                          unknown=unknown)
+        self.summary = self.summary_title = None
+
+        if mode == "models":
+            # "How much" before "on what": the model split, then the tasks
+            # that made it up.
+            self.summary = self.view
+            self.main = build(rows, "tasks", self.scope, label_width,
+                              unknown=unknown)
+            self.main_title = f"{len(self.main.buckets)} Tasks"
+        elif mode == "sessions":
+            # No model split here: the table below already names every
+            # session, and repeating the split said nothing the Tasks tab
+            # hadn't. Its summary is the shape of the sessions themselves,
+            # which draw_sessions_summary reads off this same view.
+            self.main = self.view
+            self.main_title = self.view.subtitle
+        else:
+            self.summary = build(rows, "models", self.scope,
+                                 label_width)
+            self.main = self.view
+            self.main_title = self.view.subtitle
+
+        if self.summary is not None:
+            self.summary_title = self.summary.subtitle or "By Model"
+
+    def filtered(self, query: str):
+        """This tab with its named rows narrowed by a search query."""
+        if not query or self.mode not in ("tasks", "sessions"):
+            return self
+        folded = query.casefold()
+        got = self._filtered.get(query)
+        if got is None:
+            got = self._filtered[query] = FilteredTab(self, query, folded)
+        return got
+
+
+class FilteredTab:
+    """A task or session tab whose table contains only named matches."""
+
+    def __init__(self, base: Tab, query: str, folded: str):
+        matches = [
+            bucket for bucket in base.main.buckets
+            if folded in label_of(bucket, ledger.PROMPT_CAP,
+                                  UNKNOWN_LONG).casefold()
+        ]
+        tasks = (len(matches) if base.mode == "tasks"
+                 else sum(bucket["tasks"] for bucket in matches))
+        noun = "Tasks" if base.mode == "tasks" else "Sessions"
+        title = f"{len(matches)} of {len(base.main.buckets)} {noun}"
+        narrowed = View(base.main.columns, matches, title, tasks,
+                        base.main.hint)
+
+        self.mode = base.mode
+        self.query = query
+        self.scope = base.scope
+        self.view = self.main = narrowed
+        self.main_title = title
+        self.summary = base.summary
+        self.summary_title = base.summary_title

@@ -195,7 +195,7 @@ def side_by_side(left: list[str], right: list[str]) -> list[str]:
     return [(a + " " * GAP + b).rstrip() for a, b in zip(left, right)]
 
 
-def nav_row(width: int) -> str:
+def nav_row(width: int, active: int | None = 0) -> str:
     """The tab bar with Overview marked, laid out the way tui.draw_nav lays
     it: each name in its own gutter -- the marker column, then a space -- so
     the row keeps one rhythm whichever tab is selected.
@@ -212,13 +212,15 @@ def nav_row(width: int) -> str:
     for names, gap in ((labels, NAV_GAP), (short, NAV_GAP),
                        (short, NAV_GAP - 1), (short, 1)):
         if span(names, gap) <= width:
-            cells = [("▌ " if i == 0 else "  ") + name
+            cells = [("▌ " if i == active else "  ") + name
                      for i, name in enumerate(names)]
             return (" " * gap).join(cells).ljust(width)
-    return centre(f"‹ {labels[0]}  1/{len(labels)} ›", width)
+    if active is None:
+        return centre(f"‹ {len(labels)} tabs ›", width)
+    return centre(f"‹ {labels[active]}  {active + 1}/{len(labels)} ›", width)
 
 
-def chrome(width: int, project: str) -> list[str]:
+def chrome(width: int, project: str, active: int | None = 0) -> list[str]:
     """The masthead and the tab bar, as tui.draw_chrome draws them.
 
     One piece of chrome rather than two stacked boxes: the frames share a
@@ -236,7 +238,7 @@ def chrome(width: int, project: str) -> list[str]:
                                     mark) if len(text) <= inner), mark)
     lines = frame("", [centre(title, inner)], width)[:-1]   # keep it open
     lines.append("├" + "─" * (width - 2) + "┤")
-    lines.append(f"│{pad}{nav_row(inner)}{pad}│")
+    lines.append(f"│{pad}{nav_row(inner, active)}{pad}│")
     lines.append("╰" + "─" * (width - 2) + "╯")
     return lines
 
@@ -441,6 +443,91 @@ def overview(rows: list[dict], project: str, width: int = 0) -> str:
     return "\n".join(lines)
 
 
+def boxed(title: str, view, width: int, rows: bool = True) -> list[str]:
+    """A view's table inside a titled frame, the way the UI boxes one."""
+    inner = width - 2 - 2 * PAD_X
+    drawn = render(view, inner) if rows else summary_only(view, inner)
+    return frame(title, drawn.split("\n"), width)
+
+
+def session_rows(view, width: int) -> list[str]:
+    """The sessions tab's opening panel, as tui.draw_sessions_summary draws
+    it: how many, how much each carries on average, and the two outliers
+    that recency ordering buries."""
+    buckets = view.buckets
+    count = len(buckets)
+    known = all(bucket["cost_known"] for bucket in buckets)
+    average = sum(bucket["cost"] for bucket in buckets) / count
+    priciest = max(buckets, key=lambda bucket: bucket["cost"])
+    longest = max(buckets, key=views.total_tokens)
+
+    head = f"{count:,} Sessions"
+    mid = f"{view.tasks / count:.1f} Tasks/session"
+    tail = f"avg {ledger.fmt_usd(average, known)}/session"
+    if width - len(tail) - 3 > 14 + len(mid):
+        head = f"{head:<{max(0, width - len(tail) - 3 - len(mid))}}{mid}"
+    rows = [f"{fit(head, max(0, width - len(tail) - 1)):<{max(0, width - len(tail))}}{tail}"]
+
+    figures = [ledger.fmt_usd(priciest["cost"], priciest["cost_known"]),
+               f"{ledger.fmt_tokens(views.total_tokens(longest))} Tokens"]
+    fig_w = max(len(figure) for figure in figures)
+    fig_x = max(0, width - fig_w)
+    label_x = 9 + 12
+    room = max(0, fig_x - label_x - 2)
+    for tag, bucket, figure in (("Priciest", priciest, figures[0]),
+                                ("Longest", longest, figures[1])):
+        row = (f"{fit(tag, 9):<9}{fit(views.started(bucket), 12):<12}"
+               f"{views.label_of(bucket, room, views.UNKNOWN_LONG)}")
+        rows.append(f"{fit(row, fig_x):<{fig_x}}{figure.rjust(fig_w)}"[:width])
+    return rows
+
+
+def tab_report(rows: list[dict], project: str, mode: str, period: str | None,
+               width: int, budget: int = 0) -> str:
+    """One tab of the UI, printed.
+
+    The UI leads every tab but the overview with a summary of what the table
+    below can't say about itself, then gives the table the rest of the
+    screen. A chat message has no rest-of-the-screen, but it has the same
+    two things to show and the same shape to show them in -- so this is that
+    tab, boxed the same way, sized to the pane instead of the terminal.
+
+    `budget` is the ceiling on what a conversation can carry. Over it, the
+    table keeps its header and its total and loses its rows, which is the
+    one part of the tab that has somewhere else to be read.
+    """
+    # A tab is a mode and a period, so a narrowing the UI doesn't offer --
+    # `/token-cost tasks week` -- still gets the two views a tab has. It
+    # just has no name on the bar to mark.
+    built = views.Tab(rows, mode, period, unknown="—")
+    index = views.tab_index(mode, period)
+
+    lines = chrome(width, project, index)
+    if built.summary is not None:
+        lines.append("")
+        lines += boxed(built.summary_title, built.summary, width)
+    elif built.main.buckets:
+        lines.append("")
+        lines += frame("Sessions",
+                       session_rows(built.main, width - 2 - 2 * PAD_X), width)
+
+    lines.append("")
+    body = boxed(built.main_title, built.main, width)
+    if budget and len("\n".join(lines + body)) > budget:
+        lines += boxed(built.main_title, built.main, width, rows=False)
+        lines.append("")
+        lines += budget_notice(built.main, len("\n".join(body)), budget,
+                               width).split("\n")
+        return "\n".join(lines)
+    lines += body
+
+    lines.append("")
+    lines += wrap("Estimated from published API rates; subscription plans are"
+                  " not billed per token.", width)
+    lines += wrap(built.main.hint, width)
+    return "\n".join(lines)
+
+
 def render(view, width: int = 0) -> str:
     """A view's table, narrowed to `width` when it doesn't already fit.
 
@@ -450,13 +537,12 @@ def render(view, width: int = 0) -> str:
     make a table fit -- a table you can see is short is better than one that
     quietly isn't all there.
 
-    A table that already fits is left at its natural size. The UI stretches
-    those out to its right edge, but a chat message is not a pane with an
-    edge to reach, and padding a six-column table across ninety would only
-    put air between figures that belong side by side.
+    It fills the width it is given, the way the UI's tables do, because it
+    is drawn where the UI draws its own: inside a frame, with an edge for
+    the figures to sit against.
     """
     table = views.rendered(view)
-    cols, widths, total = table.fit(width or MAX_WIDTH * 4, grow=False)
+    cols, widths, total = table.fit(width or MAX_WIDTH * 4)
     headers = [c[0] for c in cols]
     aligns = [c[1] for c in cols]
 
@@ -483,8 +569,8 @@ def summary_only(view, width: int = 0) -> str:
     return "\n".join([lines[0], lines[-2], lines[-1]])
 
 
-def budget_notice(view, table: str, width: int, unit: str = "rows",
-                  subject: str = "table") -> str:
+def budget_notice(view, size: int, budget: int, width: int,
+                  unit: str = "rows", subject: str = "table") -> str:
     """Why a long chat result isn't here, and where to read it instead.
 
     Inline shell output reaches the conversation through the Bash tool, which
@@ -493,8 +579,8 @@ def budget_notice(view, table: str, width: int, unit: str = "rows",
     long table, it produces no table. So say so, keep the totals -- which are
     the part that still fits -- and point at the UI, which has no ceiling.
     """
-    said = wrap(f"{len(view.buckets):,} {unit} is {len(table):,} characters —"
-                f" past the ~30,000 a conversation can carry, so the {subject}"
+    said = wrap(f"{len(view.buckets):,} {unit} is {size:,} characters — past"
+                f" the {budget:,} a conversation can carry, so the {subject}"
                 " would arrive as a file preview rather than rows.", width)
     return "\n".join(said + [""] + pairs([
         ("token-cost", "the full list, scrollable"),
@@ -660,16 +746,12 @@ def main() -> int:
             " finish a task and run /token-cost again.")
         return 0
 
-    scope = ""
     if period:
-        rows, scope = views.in_window(rows, period)
-        if not rows:
+        narrowed, scope = views.in_window(rows, period)
+        if not narrowed:
             say(f"No token usage recorded for {project} in that window"
                 f" ({scope}).")
             return 0
-
-    view = views.build(rows, mode, scope)
-    table = render(view, width)
 
     if imported:
         say(f"Imported {imported} earlier session(s) from transcripts on"
@@ -678,27 +760,13 @@ def main() -> int:
     if show_overview:
         output = overview(rows, project, width)
         if budget and len(output) > budget:
-            say(f"Project: {project}    {view.tasks} tasks"
-                f"    {view.subtitle}")
-            print()
-            print(summary_only(view, width))
-            print()
-            print(budget_notice(view, output, width, "days", "overview"))
+            # Too many days to draw a chart of. The day table says the same
+            # thing in a form that can shed its rows and still be a page.
+            print(tab_report(rows, project, "days", None, width, budget))
             return 0
         print(output)
         return 0
-    say(f"Project: {project}    {view.tasks} tasks    {view.subtitle}")
-    print()
-    if budget and len(table) > budget:
-        print(summary_only(view, width))
-        print()
-        print(budget_notice(view, table, width))
-        return 0
-    print(table)
-    print()
-    say("Estimated from published API rates; subscription plans are not"
-        " billed per token.")
-    say(view.hint)
+    print(tab_report(rows, project, mode, period, width, budget))
     return 0
 
 

@@ -9,7 +9,7 @@ renders that ledger as a visual overview.
 ```
 ╭──────────────────────────────────────────────────────────────────────────────────────╮
 │                                                                                      │
-│                   ▂▄▆█  Claude Token Cost v0.10.17  ·  token-cost                    │
+│                   ▂▄▆█  Claude Token Cost v0.10.18  ·  token-cost                    │
 │                                                                                      │
 ├──────────────────────────────────────────────────────────────────────────────────────┤
 │  ▌ Overview     Today     This Week     This Month     All Tasks     Sessions        │
@@ -102,27 +102,51 @@ inside your Claude Code data directory if you want the recorded history gone.
 | `/token-cost days`     | one row per day, plus a project total          |
 | `/token-cost tasks`    | one row per task — prompt, model, what it cost |
 | `/token-cost sessions` | one row per session, newest first              |
-| `/token-cost today`    | today only, broken down by model               |
-| `/token-cost week`     | the last 7 days, broken down by model          |
-| `/token-cost month`    | the last 30 days, broken down by model         |
+| `/token-cost today`    | today only: the model split, then its tasks    |
+| `/token-cost week`     | the last 7 days, a row per day                 |
+| `/token-cost month`    | the last 30 days, a row per day                |
 | `/token-cost ui`       | opens the full-screen UI in a new window       |
 
-They all read the same ledger. The default overview mirrors the full-screen
-UI in Claude Code; the explicit tables end with a TOTAL row. Any table can be
-narrowed to a period. The examples below are one small project seen several
-ways.
+They all read the same ledger, and every one of them is a tab of the
+full-screen UI, printed. Each names its tab on the bar, leads with the
+summary that tab leads with, and boxes its table the same way — sized to the
+pane it lands in rather than to the terminal. Any view can be narrowed to a
+period. The examples below are one small project seen several ways.
 
 ### `/token-cost days` — by day
 
 ```
-Project: token-cost    16 tasks    2026-08-23 → 2026-08-25
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│                   ▂▄▆█  Claude Token Cost v0.10.18  ·  token-cost                    │
+│                                                                                      │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│    Overview     Today     This Week     This Month     All Tasks     Sessions        │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
 
-DATE        TASKS  INPUT  OUTPUT  CACHE R  CACHE W  EST. $
-2026-08-23      6    161   34.8k     9.6M   214.0k   $7.25
-2026-08-24      6    134   29.0k     7.3M   152.3k   $5.41
-2026-08-25      4     98   17.6k     4.8M   108.2k   $3.48
-──────────────────────────────────────────────────────────
-TOTAL          16    393   81.4k    21.8M   474.4k  $16.14
+╭─ By Model ───────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  MODEL                       TASKS  INPUT  OUTPUT  CACHE R  CACHE W     CTX  EST. $  │
+│  opus-5                         16    393   81.5k    21.7M   474.4k  190.0k  $15.84  │
+│  haiku-4-5                       3     25   10.4k     1.1M   100.3k  190.0k   $0.29  │
+│  ──────────────────────────────────────────────────────────────────────────────────  │
+│  TOTAL                          16    418   91.9k    22.8M   574.7k  190.0k  $16.13  │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+╭─ 2026-08-23 → 2026-08-25 ────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  DATE                                TASKS  INPUT  OUTPUT  CACHE R  CACHE W  EST. $  │
+│  2026-08-23                              6    171   38.4k     9.9M   255.4k   $7.25  │
+│  2026-08-24                              6    142   32.6k     7.7M   183.3k   $5.41  │
+│  2026-08-25                              4    105   20.9k     5.2M   136.0k   $3.47  │
+│  ──────────────────────────────────────────────────────────────────────────────────  │
+│  TOTAL                                  16    418   91.9k    22.8M   574.7k  $16.13  │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+Estimated from published API rates; subscription plans are not billed per token.
+Run /token-cost tasks for a per-task breakdown.
 ```
 
 The detailed day view: the whole life of the project, a row per calendar day.
@@ -133,27 +157,50 @@ has long since deleted.
 ### `/token-cost tasks` — by task
 
 ```
-Project: token-cost    16 tasks    every task
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│                   ▂▄▆█  Claude Token Cost v0.10.18  ·  token-cost                    │
+│                                                                                      │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│    Overview     Today     This Week     This Month   ▌ All Tasks     Sessions        │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
 
-WHEN         TASK                                                  MODEL      INPUT  OUTPUT  CACHE R  CACHE W  EST. $
-08-25 10:41  /token-cost tasks                                     opus-5         1     189    26.2k     3.5k   $0.05
-08-25 10:22  Add a per-task breakdown to the report                opus-5        33    4.6k   951.2k    26.4k   $0.85
-08-25 09:58  Slash commands should record as the command, not th…  opus-5        17    1.4k   446.6k     3.5k   $0.29
-08-25 09:23  Save the prompt that started each task                opus-5 +1     47   11.5k     3.4M    74.7k   $2.28
-08-24 13:31  Add update instructions to the README                 opus-5        10    1.2k   427.4k     3.4k   $0.28
-08-24 13:06  Publish the plugin to the marketplace                 opus-5        25    5.4k     1.4M    15.7k   $1.02
-08-24 10:05  Add a today view broken down by model                 opus-5        20    4.6k     1.5M    17.6k   $1.02
-08-24 09:33  /token-cost sessions                                  opus-5         1     202    28.7k     5.2k   $0.07
-08-24 09:20  Guard the sync with a lock, two sessions can race     opus-5        17    1.5k   462.5k     5.1k   $0.32
-08-24 08:47  Import history automatically on session start inste…  opus-5 +1     61   16.1k     3.5M   105.3k   $2.70
-08-23 14:40  Add a --backfill flag for sessions that predate the…  opus-5        45   10.2k     2.9M    58.6k   $2.30
-08-23 14:12  Read subagent transcripts too — they're billed sepa…  opus-5        19    4.2k     1.2M    24.6k   $0.95
-08-23 10:38  Write the README                                      opus-5        10    1.6k   266.4k     3.4k   $0.21
-08-23 10:02  Dedupe requests by requestId, we're counting every…   opus-5 +1     48   11.9k     3.6M   101.9k   $2.55
-08-23 09:41  The hook fires but nothing lands in the ledger — fi…  opus-5        11    1.6k   390.9k     5.0k   $0.29
-08-23 09:14  Set up the project skeleton and wire the Stop hook    opus-5        28    5.3k     1.2M    20.5k   $0.95
-─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-TOTAL                                                                           393   81.4k    21.8M   474.4k  $16.14
+╭─ By Model ───────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  MODEL                       TASKS  INPUT  OUTPUT  CACHE R  CACHE W     CTX  EST. $  │
+│  opus-5                         16    393   81.5k    21.7M   474.4k  190.0k  $15.84  │
+│  haiku-4-5                       3     25   10.4k     1.1M   100.3k  190.0k   $0.29  │
+│  ──────────────────────────────────────────────────────────────────────────────────  │
+│  TOTAL                          16    418   91.9k    22.8M   574.7k  190.0k  $16.13  │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+╭─ Every Task ─────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  TIME         TASK                        MODEL      INPUT  OUTPUT  CACHE R  EST. $  │
+│  08-25 16:11  /token-cost tasks           opus-5         1     189    26.2k   $0.05  │
+│  08-25 15:52  Add a per-task breakdown …  opus-5        33    4.6k   951.2k   $0.85  │
+│  08-25 15:28  Slash commands should rec…  opus-5        17    1.4k   446.6k   $0.29  │
+│  08-25 14:53  Save the prompt that star…  opus-5 +1     54   14.7k     3.8M   $2.28  │
+│  08-24 19:01  Add update instructions t…  opus-5        10    1.2k   427.4k   $0.28  │
+│  08-24 18:36  Publish the plugin to the…  opus-5        25    5.4k     1.4M   $1.02  │
+│  08-24 15:35  Add a today view broken d…  opus-5        20    4.6k     1.5M   $1.02  │
+│  08-24 15:03  /token-cost sessions        opus-5         1     202    28.7k   $0.07  │
+│  08-24 14:50  Guard the sync with a loc…  opus-5        17    1.5k   462.5k   $0.32  │
+│  08-24 14:17  Import history automatica…  opus-5 +1     69   19.7k     3.9M   $2.70  │
+│  08-23 20:10  Add a --backfill flag for…  opus-5        45   10.2k     2.9M   $2.30  │
+│  08-23 19:42  Read subagent transcripts…  opus-5        19    4.2k     1.2M   $0.95  │
+│  08-23 16:08  Write the README            opus-5        10    1.6k   266.4k   $0.21  │
+│  08-23 15:32  Dedupe requests by reques…  opus-5 +1     58   15.5k     4.0M   $2.55  │
+│  08-23 15:11  The hook fires but nothin…  opus-5        11    1.6k   390.9k   $0.29  │
+│  08-23 14:44  Set up the project skelet…  opus-5        28    5.3k     1.2M   $0.95  │
+│  ──────────────────────────────────────────────────────────────────────────────────  │
+│  TOTAL                                                 418   91.9k    22.8M  $16.13  │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+Estimated from published API rates; subscription plans are not billed per token.
+Narrow it with /token-cost tasks week or tasks month.
 ```
 
 Newest first, each task named by the prompt that opened it — so an expensive
@@ -169,42 +216,86 @@ rows is worse than a long one, because nothing on screen tells you something
 is missing. Use a period filter when you want less (below).
 
 In the conversation there is one limit, and it isn't ours: inline shell output
-reaches Claude through the Bash tool, which carries about 30,000 characters.
-Past that the model is handed a file path and a preview instead of a table, so
-printing more doesn't produce a longer table — it produces none. When a task
-list would cross that line, the command prints the totals and says where the
-rows are rather than pretending:
+reaches Claude through the Bash tool, which carries about 30,000 characters
+(the command allows itself 28,000 of them). Past that the model is handed a
+file path and a preview instead of a table, so printing more doesn't produce a
+longer table — it produces none. When a task list would cross that line the
+page stays the page: same tab, same model split, and a table down to its
+header and its total, with a note saying where the rows are:
 
 ```
-Project: labfriend-v2    930 tasks    every task
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│                  ▂▄▆█  Claude Token Cost v0.10.18  ·  labfriend-v2                   │
+│                                                                                      │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│    Overview     Today     This Week     This Month   ▌ All Tasks     Sessions        │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
 
-WHEN         TASK                          MODEL       INPUT  OUTPUT  CACHE R  CACHE W     EST. $
-─────────────────────────────────────────────────────────────────────────────────────────────────
-TOTAL                                                  82.9k    7.4M  1479.0M    34.0M  $1,325.84
+╭─ By Model ───────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  MODEL                   TASKS   INPUT  OUTPUT  CACHE R  CACHE W     CTX     EST. $  │
+│  opus-5                    783   96.1k   19.9M  8496.8M    23.2M  190.0k  $6,976.89  │
+│  haiku-4-5                 147    6.1k    2.5M   431.2M     4.9M  190.0k    $127.89  │
+│  ──────────────────────────────────────────────────────────────────────────────────  │
+│  TOTAL                     930  102.3k   22.5M  8928.0M    28.1M  190.0k  $7,104.78  │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
 
-930 rows is 91,433 characters — past the ~30,000 a conversation
-can carry, so the table would arrive as a file preview rather than rows.
+╭─ Every Task ─────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  TIME         TASK                    MODEL       INPUT  OUTPUT  CACHE R     EST. $  │
+│  ──────────────────────────────────────────────────────────────────────────────────  │
+│  TOTAL                                           102.3k   22.5M  8928.0M  $7,104.78  │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+930 rows is 83,392 characters — past the 28,000 a conversation can carry, so the table
+would arrive as a file preview rather than rows.
 
   token-cost                 the full list, scrollable
   /token-cost tasks week     the last 7 days, in chat
 ```
 
-Run `report.py` from a shell and there is no budget at all — it prints all 930
-rows. The ceiling only applies to what has to travel through a chat message.
+The summary above it is the point: it is the part that still fits, and on a
+project this size it is most of what you wanted anyway. Run `report.py` from a
+shell and there is no budget at all — it prints all 930 rows. The ceiling only
+applies to what has to travel through a chat message.
 
 ### `/token-cost sessions` — by session
 
 ```
-Project: token-cost    16 tasks    5 sessions
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│                   ▂▄▆█  Claude Token Cost v0.10.18  ·  token-cost                    │
+│                                                                                      │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│    Overview     Today     This Week     This Month     All Tasks   ▌ Sessions        │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
 
-SESSION   STARTED      OPENED WITH                         TASKS  INPUT  OUTPUT  CACHE R  CACHE W  EST. $
-b7f51c83  08-25 09:23  Save the prompt that started each…      4     98   17.6k     4.8M   108.2k   $3.48
-6d09b3f4  08-24 13:06  Publish the plugin to the marketp…      2     35    6.6k     1.9M    19.1k   $1.29
-c41e7d92  08-24 08:47  Import history automatically on s…      4     99   22.4k     5.5M   133.2k   $4.12
-3ba8d0e6  08-23 14:12  Read subagent transcripts too — t…      2     64   14.3k     4.1M    83.2k   $3.25
-9f2c4a71  08-23 09:14  Set up the project skeleton and w…      4     97   20.5k     5.5M   130.7k   $4.00
-─────────────────────────────────────────────────────────────────────────────────────────────────────────
-TOTAL                                                         16    393   81.4k    21.8M   474.4k  $16.14
+╭─ Sessions ───────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  5 Sessions                                   3.2 Tasks/session   avg $3.23/session  │
+│  Priciest 08-24 14:17 Import history automatically on session start i…        $4.11  │
+│  Longest  08-24 14:17 Import history automatically on session start i…  6.1M Tokens  │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+╭─ 5 Sessions ─────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  SESSION   TIME         OPENED WITH           TASKS  INPUT  OUTPUT  CACHE R  EST. $  │
+│  b7f51c83  08-25 14:53  Save the prompt tha…      4    105   20.9k     5.2M   $3.47  │
+│  6d09b3f4  08-24 18:36  Publish the plugin …      2     35    6.6k     1.8M   $1.30  │
+│  c41e7d92  08-24 14:17  Import history auto…      4    107   26.0k     5.9M   $4.11  │
+│  3ba8d0e6  08-23 19:42  Read subagent trans…      2     64   14.4k     4.1M   $3.25  │
+│  9f2c4a71  08-23 14:44  Set up the project …      4    107   24.0k     5.8M   $4.00  │
+│  ──────────────────────────────────────────────────────────────────────────────────  │
+│  TOTAL                                           16    418   91.9k    22.8M  $16.13  │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+Estimated from published API rates; subscription plans are not billed per token.
+Run /token-cost tasks for a per-task breakdown.
 ```
 
 One row per Claude Code session, newest first. OPENED WITH is the session's
@@ -212,33 +303,84 @@ first prompt, which is a better handle on "which session was that" than eight
 characters of a uuid. Long sessions are worth watching: cache reads grow with
 the conversation, so a session's tenth task costs more than its first.
 
+The panel above it is the one thing a list ordered by recency can't show you:
+how many sessions there are, what an average one costs, and the two outliers
+— the priciest, and the one that read the most — which recency ordering
+buries wherever they happen to fall.
+
 ### `/token-cost today` — a period, by model
 
 ```
-Project: token-cost    4 tasks    today, 2026-08-25
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│                   ▂▄▆█  Claude Token Cost v0.10.18  ·  token-cost                    │
+│                                                                                      │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│    Overview   ▌ Today     This Week     This Month     All Tasks     Sessions        │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
 
-MODEL      TASKS  INPUT  OUTPUT  CACHE R  CACHE W  EST. $
-opus-5         4     91   14.5k     4.5M    80.2k   $3.39
-haiku-4-5      1      7    3.2k   351.0k    27.9k   $0.09
-─────────────────────────────────────────────────────────
-TOTAL          4     98   17.6k     4.8M   108.2k   $3.48
+╭─ Today, 2026-08-26 ──────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  MODEL                          TASKS  INPUT  OUTPUT  CACHE R  CACHE W  CTX  EST. $  │
+│  ──────────────────────────────────────────────────────────────────────────────────  │
+│  TOTAL                              0      0       0        0        0    0   $0.00  │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+╭─ 0 Tasks ────────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│  TIME   TASK                         MODEL  INPUT  OUTPUT  CACHE R  CACHE W  EST. $  │
+│  ──────────────────────────────────────────────────────────────────────────────────  │
+│  TOTAL                                          0       0        0        0   $0.00  │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+Estimated from published API rates; subscription plans are not billed per token.
 ```
 
-Today only — your local calendar day — split by model. The per-model task
-counts overlap on purpose: one of today's four tasks also ran a haiku
-subagent, so it appears on both rows while TOTAL still counts four tasks.
+Today only — your local calendar day. The model split first, then the tasks
+that made it up, which is the order the UI's Today tab puts them in. The
+per-model task counts overlap on purpose: one of today's four tasks also ran
+a haiku subagent, so it appears on both rows while TOTAL still counts four
+tasks.
 
-`week` and `month` are the same view over a longer window — the last 7 and
-last 30 days, rolling, not calendar-aligned:
+`week` and `month` cover a longer window — the last 7 and last 30 days,
+rolling, not calendar-aligned — and lead with the same split over a table of
+days rather than tasks, because a week is too many tasks to read as a list
+and its shape is a shape per day:
 
 ```
-Project: token-cost    16 tasks    last 7 days, 2026-08-19 → 2026-08-25
+╭──────────────────────────────────────────────────────────────────────────────────────╮
+│                                                                                      │
+│                   ▂▄▆█  Claude Token Cost v0.10.18  ·  token-cost                    │
+│                                                                                      │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│    Overview     Today   ▌ This Week     This Month     All Tasks     Sessions        │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
 
-MODEL      TASKS  INPUT  OUTPUT  CACHE R  CACHE W  EST. $
-opus-5        16    368   71.0k    20.7M   374.1k  $15.85
-haiku-4-5      3     25   10.4k     1.1M   100.3k   $0.29
-─────────────────────────────────────────────────────────
-TOTAL         16    393   81.4k    21.8M   474.4k  $16.14
+╭─ Last 7 Days, 2026-08-20 → 2026-08-26 ───────────────────────────────────────────────╮
+│                                                                                      │
+│  MODEL                       TASKS  INPUT  OUTPUT  CACHE R  CACHE W     CTX  EST. $  │
+│  opus-5                         16    393   81.5k    21.7M   474.4k  190.0k  $15.84  │
+│  haiku-4-5                       3     25   10.4k     1.1M   100.3k  190.0k   $0.29  │
+│  ──────────────────────────────────────────────────────────────────────────────────  │
+│  TOTAL                          16    418   91.9k    22.8M   574.7k  190.0k  $16.13  │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+╭─ Last 7 Days, 2026-08-20 → 2026-08-26 ───────────────────────────────────────────────╮
+│                                                                                      │
+│  DATE                                TASKS  INPUT  OUTPUT  CACHE R  CACHE W  EST. $  │
+│  2026-08-23                              6    171   38.4k     9.9M   255.4k   $7.25  │
+│  2026-08-24                              6    142   32.6k     7.7M   183.3k   $5.41  │
+│  2026-08-25                              4    105   20.9k     5.2M   136.0k   $3.47  │
+│  ──────────────────────────────────────────────────────────────────────────────────  │
+│  TOTAL                                  16    418   91.9k    22.8M   574.7k  $16.13  │
+│                                                                                      │
+╰──────────────────────────────────────────────────────────────────────────────────────╯
+
+Estimated from published API rates; subscription plans are not billed per token.
+Run /token-cost tasks for a per-task breakdown.
 ```
 
 ### Narrowing any view
@@ -293,13 +435,21 @@ clean slate.
 
 ## The UI
 
-`/token-cost` prints the Overview tab into the conversation — the same
-chrome, the same panels, the same rows, drawn to fit the pane it lands in.
+`/token-cost` prints a tab of the UI into the conversation — the overview by
+default, or whichever tab you name. Not a summary of that tab: the same
+chrome, the same panels, the same titles, the same columns and cells, drawn
+to fit the pane it lands in.
+
 Claude Code hands the report a pipe rather than a terminal, so it finds the
 width by asking the terminal Claude Code itself is attached to, and every
 panel, bar and column is sized from that. A panel too narrow to hold its
-figures gives up words first and whole columns after, in that order; it
-never gives up a row.
+figures gives up words first and whole columns after, in that order; it never
+gives up a row.
+
+The two share the code that decides all of it — which tabs exist, what each
+one holds, how a table's columns fit a width, where a row's figures sit — so
+they can't drift into two different-looking things. `dev/smoke_report.py`
+checks that they haven't.
 
 `token-cost` opens the same ledger as a full-screen app, with tabs and no
 limit on how much it can show. It holds its shape at any size: panels stack
@@ -310,7 +460,7 @@ worth opening.
 ```
   ╭──────────────────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                      │
-  │                           ▂▄▆█  Claude Token Cost v0.10.17  ·  token-cost                            │
+  │                           ▂▄▆█  Claude Token Cost v0.10.18  ·  token-cost                            │
   │                                                                                                      │
   ├──────────────────────────────────────────────────────────────────────────────────────────────────────┤
   │  ▌ Overview     Today     This Week     This Month     All Tasks     Sessions                        │
@@ -318,17 +468,17 @@ worth opening.
 
   ╭─ Project ──────────────────────╮  ╭─ Models ─────────────────────────────────────────────────────────╮
   │                                │  │                                                                  │
-  │  91 Tasks                      │  │  opus-5 (1m)     41 Tasks               179.9M Tokens   $113.61  │
+  │  96 Tasks                      │  │  opus-5 (1m)     46 Tasks               198.4M Tokens   $128.34  │
   │  2026-08-24 → 2026-08-26       │  │  fable-5 (1m)    11 Tasks                42.3M Tokens    $58.38  │
-  │  292.6M Tokens                 │  │  fable-5         16 Tasks                21.0M Tokens    $43.40  │
-  │  $260.07                       │  │  opus-5          25 Tasks                46.4M Tokens    $42.07  │
+  │  311.1M Tokens                 │  │  fable-5         16 Tasks                21.0M Tokens    $43.40  │
+  │  $274.80                       │  │  opus-5          25 Tasks                46.4M Tokens    $42.07  │
   │                                │  │  sonnet-5         4 Tasks                 2.1M Tokens     $2.38  │
   ╰────────────────────────────────╯  │                                                                  │
                                       ╰──────────────────────────────────────────────────────────────────╯
 
   ╭─ Cost Per Day ───────────────────────────────────────────────────────────────────────────────────────╮
   │  08-25 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▏  224.2M   $204.03  │
-  │  08-26 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏   46.2M    $39.49  │
+  │  08-26 ▕▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈▏   64.7M    $54.22  │
   ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯
 
   ╭─ Most Expensive Tasks ───────────────────────────────────────────────────────────────────────────────╮
@@ -355,7 +505,7 @@ scrollable, however many there are:
 ```
   ╭──────────────────────────────────────────────────────────────────────────────────────────────────────╮
   │                                                                                                      │
-  │                           ▂▄▆█  Claude Token Cost v0.10.17  ·  token-cost                            │
+  │                           ▂▄▆█  Claude Token Cost v0.10.18  ·  token-cost                            │
   │                                                                                                      │
   ├──────────────────────────────────────────────────────────────────────────────────────────────────────┤
   │    Overview     Today     This Week     This Month   ▌ All Tasks     Sessions                        │
@@ -366,20 +516,20 @@ scrollable, however many there are:
   │  │  Press / or click, then type to filter tasks                                                   │  │
   │  ╰────────────────────────────────────────────────────────────────────────────────────────────────╯  │
   │  TIME         TASK                         MODEL           INPUT  OUTPUT  CACHE R  CACHE W   EST. $  │
-  │  08-26 04:04  /goal sweet. now lets do t…  opus-5 (1m)        76   56.1k    10.3M    75.6k    $7.30  │
+  │  08-26 13:56  continue                     opus-5 (1m)        46   22.4k     8.4M   368.2k    $8.44  │
+  │  08-26 04:33  you stuck?                   opus-5 (1m)        16    6.3k     2.9M     9.4k    $1.68  │
+  │  08-26 04:26  [image] bro where's the cl…  opus-5 (1m)        30   26.1k     4.9M    40.3k    $3.52  │
+  │  08-26 04:23  publish and update the loc…  opus-5 (1m)         6    1.3k   924.2k     1.9k    $0.51  │
+  │  08-26 04:18  /goal sweet. now lets do t…  opus-5 (1m)         4    1.9k   609.8k     2.6k    $0.38  │
+  │  08-26 04:04  /goal sweet. now lets do t…  opus-5 (1m)        78   57.4k    10.6M    76.6k    $7.49  │
   │  08-26 03:55  [image] bro the tty UI suc…  opus-5 (1m)         8    2.3k   901.8k     1.8k    $0.53  │
   │  08-26 03:35  [image] bro the tty UI suc…  opus-5 +1         156   90.3k    11.8M   197.3k   $10.13  │
   │  08-26 00:44  yes implement, but dont co…  sonnet-5            4   22.3k   365.4k    30.5k    $0.63  │
   │  08-26 00:37  continue                     opus-5             16    3.5k     2.0M     3.7k    $1.15  │
   │  08-26 00:29  but claude code shows "Chu…  sonnet-5           10   33.3k   797.7k    30.8k    $0.85  │
   │  08-26 00:24  but claude code shows "Chu…  sonnet-5            4    3.6k   285.4k     5.0k    $0.11  │
-  │  08-26 00:23  Doesn't claude has an API …  sonnet-5            8    4.4k   432.8k    99.7k    $0.79  │
-  │  08-26 00:07  continue                     opus-5              6    8.0k   278.3k     8.3k    $0.42  │
-  │  08-26 00:06  continue                     opus-5              8    8.0k   286.2k    62.9k    $0.97  │
-  │  08-26 00:05  continue                     opus-5 +1         194  116.4k    16.9M   226.5k   $13.62  │
-  │  08-26 00:02  /goal I Need TUI to be 60f…  fable-5            10    4.7k   225.8k    55.8k    $1.58  │
   │  ──────────────────────────────────────────────────────────────────────────────────────────────────  │
-  │  TOTAL                                                      3.3k    1.4M   287.9M     3.3M  $260.07  │
+  │  TOTAL                                                      3.4k    1.5M   305.9M     3.7M  $274.80  │
   │                                                                                                      │
   ╰──────────────────────────────────────────────────────────────────────────────────────────────────────╯
   Click or ←/→ Tabs · ↑/↓ Scroll · r Refresh · q/Esc Quit
@@ -541,13 +691,22 @@ passes only when all three agree:
   rate table and must land inside the band the two cache-write TTLs allow.
   Two implementations agreeing on the money, one of them Anthropic's.
 
-`dev/smoke_report.py` holds the chat report to the one property a report
-printed into someone else's pane has to have: it fits. Every panel and every
-table is rendered at every width from the layout's floor to past its
-ceiling, against synthetic ledgers and this project's real one, and each
-render is measured — no line over the width, no frame that stops short of
-its own border, no row dropped to make a table fit. What it can't say is
-whether the numbers are right; that's the verifier above.
+`dev/smoke_report.py` holds the chat report to two properties.
+
+It fits. Every panel and every table, in every view the command offers, is
+rendered at every width from the layout's floor to past its ceiling — with
+and without a budget, against synthetic ledgers and this project's real one
+— and each render is measured: no line over the width, no frame that stops
+short of its own border, no row dropped to make a table fit.
+
+And it agrees. The report claims to be the UI printed, so the check runs the
+real UI under a pseudo-terminal at three sizes, reads its cells back out of
+curses, and requires every line it drew to be a line the report printed at
+the same width. Not the reverse — the report has no bottom, so it shows rows
+the terminal had no room for. Both read one frozen copy of the ledger,
+because this plugin records a row every time a task finishes, including the
+tasks running the check. What neither can say is whether the numbers are
+right; that's the verifier above.
 
 `dev/smoke_tui.py` drives the real UI under a pseudo-terminal — every tab,
 the mouse, the search input, sizes from a postage stamp to a wall. Then it
