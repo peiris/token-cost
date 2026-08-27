@@ -23,7 +23,9 @@ import re
 import select
 import signal
 import struct
+import subprocess
 import sys
+import tempfile
 import termios
 import time
 from pathlib import Path
@@ -71,11 +73,12 @@ INTERRUPT = b"\x03"
 class App:
     """The TUI running in a pty."""
 
-    def __init__(self, cwd: str, rows: int, cols: int):
+    def __init__(self, cwd: str, rows: int, cols: int, env: dict = None):
         self.rows, self.cols = rows, cols
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             os.environ["TERM"] = "xterm-256color"
+            os.environ.update(env or {})
             os.execv(sys.executable, [sys.executable, str(TUI), "--cwd", cwd])
         fcntl.ioctl(self.fd, termios.TIOCSWINSZ,
                     struct.pack("HHHH", rows, cols, 0, 0))
@@ -706,6 +709,72 @@ def run_frames(cwd: str) -> list:
     return problems
 
 
+# The repeat_char capability, exactly as xterm and everything descended from
+# it spells it. Written out here rather than borrowed from a terminal that
+# happens to be installed, so this check builds the same terminal everywhere.
+REPEAT_CHAR = r"rep=%p1%c\E[%p2%{1}%-%db,"
+
+
+def repeating_terminal(into: Path):
+    """Compile a terminal description that advertises `rep`, and name it.
+
+    None when the terminfo tools aren't here to build one -- there is then
+    no way to ask this question, which is different from the answer being
+    yes.
+    """
+    try:
+        entry = subprocess.run(["infocmp", "-x", "xterm-256color"], check=True,
+                               capture_output=True, text=True).stdout
+        body = [line for line in entry.splitlines() if not line.startswith("#")]
+        body = [re.sub(r"\s*\brep=(?:\\.|[^,\\])*,", "", line) for line in body]
+        body[0] = "smoke-rep|a terminal that advertises rep,"
+        body.insert(1, "\t" + REPEAT_CHAR)
+        subprocess.run(["tic", "-x", "-o", str(into), "-"], check=True,
+                       input="\n".join(body) + "\n", capture_output=True,
+                       text=True)
+    except (OSError, IndexError, subprocess.SubprocessError):
+        return None
+    return "smoke-rep"
+
+
+def run_repeat(cwd: str, rows: int = 40, cols: int = 140) -> list:
+    """The frame as it lands on a terminal whose terminfo carries `rep`.
+
+    ncurses collapses a repeated cell into the repeat_char escape, and that
+    escape carries the character as a single byte -- so every rule and every
+    bar on this screen, all of them multi-byte glyphs, go out as their low
+    byte or as nothing at all. Only terminfo decides whether it happens, and
+    every other check in this file runs against xterm-256color, which has no
+    `rep` and never showed it. Ghostty's description has one, and so do
+    kitty's and wezterm's.
+
+    Read off the byte stream, not out of curses: this goes wrong between
+    what curses believes it drew and what leaves down the wire, so instr()
+    reports the frame as perfect while the terminal shows wreckage.
+    """
+    with tempfile.TemporaryDirectory(prefix="smoke-terminfo.") as into:
+        term = repeating_terminal(Path(into))
+        if term is None:
+            print("repeat_char: skipped (no infocmp/tic here)")
+            return []
+        app = App(cwd, rows, cols, {"TERM": term, "TERMINFO": into})
+        drew = app.wait_for(TABS_FIRST)
+        app.read(0.3)
+        frame = app.screen()
+        app.close()
+
+    problems = []
+    if not drew:
+        problems.append(f"repeat_char: never drew a first frame on {term}")
+    if "�" in frame:
+        row = next(line for line in frame.splitlines() if "�" in line)
+        problems.append("repeat_char: a glyph went out as a bare byte\n"
+                        f"  |{row}|")
+    problems += broken_boxes(frame.splitlines(), rows, cols, "repeat_char")
+    print(f"repeat_char: {'FAIL' if problems else 'ok'}")
+    return problems
+
+
 def show(cwd: str, tab: int, rows: int, cols: int) -> None:
     """Print one frame, so a layout can be eyeballed from outside a terminal."""
     app = App(cwd, rows, cols)
@@ -751,6 +820,7 @@ def main() -> int:
         print(f"search: {'FAIL' if found else 'ok'}")
         problems += found
 
+    problems += run_repeat(cwd)
     problems += run_frames(cwd)
 
     for p in problems:

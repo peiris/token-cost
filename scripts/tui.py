@@ -17,7 +17,11 @@ from __future__ import annotations
 import curses
 import json
 import locale
+import os
+import re
+import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -58,6 +62,86 @@ def _unicode_ok() -> bool:
 
 UNICODE = _unicode_ok()
 
+# The rewritten terminfo, held for the life of the process: ncurses reads
+# the directory at initscr(), long after this module finished importing.
+_TERMINFO = None
+
+
+def _drop_repeat_char() -> bool:
+    """Hand ncurses this terminal's terminfo with `rep` taken out of it.
+
+    `rep` is how terminfo says "draw that character n more times", and
+    ncurses reaches for it the moment a row repeats one cell far enough to
+    be worth the escape -- which on this screen is every panel edge, every
+    table rule and every bar in the chart. The capability carries the
+    character as a single byte (`%p1%c`), so it cannot express a glyph that
+    is three bytes of UTF-8, and the ncurses macOS ships uses it anyway: a
+    rule of ─ (U+2500) leaves as a NUL and disappears, a bar of ▄ (U+2584)
+    leaves as 0x84 and lands as a row of replacement characters. Only the
+    terminal decides whether we hit this -- xterm-256color has no `rep` and
+    never showed it; xterm-ghostty has one, and so do kitty's and wezterm's.
+
+    So take the capability away. Recompile the terminal's own entry without
+    that one line into a directory of ours and point TERMINFO at it: every
+    other capability is still the real terminal's, and the only thing lost
+    is an optimisation ncurses cannot perform correctly. Losing it costs a
+    few hundred bytes on a frame that draws a long rule.
+
+    True once the swap is in place, or when the terminal never offered
+    `rep` to begin with. False if the entry could not be rewritten, which
+    is what the ASCII fallback below is for.
+    """
+    global _TERMINFO
+    term = os.environ.get("TERM", "")
+    if not term or not sys.stdout.isatty():
+        # No terminal to read a description from -- `token-cost html`, or a
+        # report piped somewhere. Nothing here will draw.
+        return True
+    try:
+        curses.setupterm(term, sys.stdout.fileno())
+        if not curses.tigetstr("rep"):
+            return True
+    except (curses.error, ValueError, OSError):
+        return True                     # no description to read, so no `rep`
+    try:
+        entry = subprocess.run(["infocmp", "-x", term], check=True,
+                               capture_output=True, text=True).stdout
+        # A capability ends at the first comma that isn't spoken for by a
+        # backslash, and takes the whitespace in front of it with it.
+        without = re.sub(r"\s*\brep=(?:\\.|[^,\\])*,", "", entry)
+        if without == entry:
+            return False                # nothing came out, so nothing changed
+        _TERMINFO = tempfile.TemporaryDirectory(prefix="token-cost-terminfo.")
+        subprocess.run(["tic", "-x", "-o", _TERMINFO.name, "-"], input=without,
+                       check=True, capture_output=True, text=True)
+        # Where tic files an entry, and where ncurses will come looking. A
+        # directory that turns out not to hold it is worse than not setting
+        # TERMINFO at all: ncurses would walk on to the original and use
+        # `rep` after all, with nothing here expecting it to.
+        wrote = any((Path(_TERMINFO.name) / part / term).exists()
+                    for part in (f"{ord(term[0]):02x}", term[0]))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        wrote = False
+    if not wrote:
+        _TERMINFO = None
+        return False
+    # TERMINFO is a single directory and we are about to take it. Ghostty
+    # sets it to the one inside its own bundle, which is nowhere ncurses
+    # would look on its own, so hand that path to TERMINFO_DIRS on the way
+    # past: if anything about the rewritten entry turns out not to satisfy
+    # the lookup, the search carries on to the real one instead of ending
+    # in a terminal ncurses cannot find at all. The trailing empty element
+    # is how that list spells "and then the usual places".
+    where = os.environ.get("TERMINFO")
+    if where:
+        rest = os.environ.get("TERMINFO_DIRS", "")
+        os.environ["TERMINFO_DIRS"] = f"{where}:{rest}" if rest else f"{where}:"
+    os.environ["TERMINFO"] = _TERMINFO.name
+    return True
+
+
+REPEATABLE = _drop_repeat_char()
+
 if UNICODE:
     # Half-height, so consecutive bars can't fuse into one orange mass: each
     # sits on its own baseline with clear air above it. A full block would
@@ -92,6 +176,14 @@ else:
     LEFT_ARROW, RIGHT_ARROW = "<", ">"
     KEYS = "Click or Left/Right Tabs - Up/Down Scroll - r Refresh - q/Esc Quit"
     FILTER_KEYS = "Click or Left/Right Tabs - Up/Down Scroll - r Refresh - q Quit"
+
+if UNICODE and not REPEATABLE:
+    # `rep` is still there and ncurses will still send a repeated cell
+    # through it a byte at a time. Only the three glyphs this screen draws
+    # in long runs have to give way -- an ASCII one survives the trip. The
+    # corners, edges, tees and marks are single cells, never repeated far
+    # enough for ncurses to reach for the capability, and stay as they are.
+    BAR, TRACK, RULE = "=", ".", "-"
 
 # Colour pairs
 C_ACCENT, C_MUTED, C_HEAD, C_TOTAL = 1, 2, 3, 4
